@@ -45,7 +45,12 @@ public class AgentApp {
                 try (Response response = client.newCall(pollRequest).execute()) {
                     if (response.code() != 200 || response.body() == null) return;
 
-                    Map<String, Object> task = mapper.readValue(response.body().string(), Map.class);
+                    String raw = response.body().string();
+                    System.out.println("[AGENT] Raw task: " + raw);
+
+                    if (raw.isBlank() || raw.equals("[]")) return;
+
+                    Map<String, Object> task = mapper.readValue(raw, Map.class);
                     String sessionId = ((String) task.get("PK")).split("#")[1];
                     String target = (String) task.get("target");
                     String payloadBase64 = (String) task.get("payload");
