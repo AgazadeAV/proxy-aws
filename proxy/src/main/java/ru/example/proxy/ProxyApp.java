@@ -12,7 +12,6 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Base64;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -63,10 +62,7 @@ public class ProxyApp {
 
             int port = (in.read() << 8) | in.read();
             String target = host + ":" + port;
-            String sessionId = UUID.randomUUID().toString();
-
-            System.out.printf("[Proxy] Session %s → %s%n", sessionId, target);
-            System.out.println("[Proxy] Waiting for agent to poll session: " + sessionId);
+            System.out.println("[Proxy] → " + target);
 
             out.write(new byte[]{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0});
 
@@ -79,7 +75,7 @@ public class ProxyApp {
                         byte[] actual = new byte[read];
                         System.arraycopy(buf, 0, actual, 0, read);
                         String payload = Base64.getEncoder().encodeToString(actual);
-                        String json = String.format("{\"agentId\":\"%s\",\"sessionId\":\"%s\",\"target\":\"%s\",\"payload\":\"%s\"}", AGENT_ID, sessionId, target, payload);
+                        String json = String.format("{\"agentId\":\"%s\",\"target\":\"%s\",\"payload\":\"%s\"}", AGENT_ID, target, payload);
 
                         Request request = new Request.Builder()
                                 .url(ENQUEUE_URL)
@@ -98,7 +94,7 @@ public class ProxyApp {
                 try {
                     while (true) {
                         Request poll = new Request.Builder()
-                                .url(RESULT_URL + "?sessionId=" + sessionId)
+                                .url(RESULT_URL + "?agentId=" + AGENT_ID)
                                 .get().build();
 
                         try (Response response = client.newCall(poll).execute()) {

@@ -55,14 +55,6 @@ public class AgentApp {
                     if (raw.isBlank() || raw.equals("[]")) return;
 
                     Map<String, Object> task = mapper.readValue(raw, Map.class);
-                    String pk = (String) task.get("PK");
-                    String sessionId = pk != null && pk.contains("#") ? pk.split("#")[1] : null;
-
-                    if (sessionId == null) {
-                        System.err.println("[AGENT] No sessionId in PK");
-                        return;
-                    }
-
                     String target = (String) task.get("target");
                     String payloadBase64 = (String) task.get("payload");
 
@@ -71,10 +63,10 @@ public class AgentApp {
                         return;
                     }
 
-                    System.out.printf("[AGENT] Handling session %s → %s%n", sessionId, target);
+                    System.out.printf("[AGENT] Handling → %s%n", target);
 
                     String result = handleSession(target, payloadBase64);
-                    sendResult(sessionId, result);
+                    sendResult(result);
                 }
             } catch (Exception e) {
                 System.err.println("[AGENT] Poll error: " + e.getMessage());
@@ -108,11 +100,10 @@ public class AgentApp {
             }
         }
 
-        private void sendResult(String sessionId, String base64) {
+        private void sendResult(String base64) {
             try {
                 String json = mapper.writeValueAsString(Map.of(
                         "agentId", AGENT_ID,
-                        "sessionId", sessionId,
                         "payload", base64
                 ));
 
