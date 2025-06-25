@@ -20,6 +20,7 @@ public class ProxyApp {
     private static final int PORT = 1080;
     private static final String ENQUEUE_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/enqueue";
     private static final String RESULT_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/relay-result";
+    private static final String NOTIFY_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/poll"; // новое
     private static final String AGENT_ID = "agent-001";
 
     private static final OkHttpClient client = new OkHttpClient();
@@ -64,6 +65,22 @@ public class ProxyApp {
             int port = (in.read() << 8) | in.read();
             String target = host + ":" + port;
             String sessionId = UUID.randomUUID().toString();
+
+            System.out.printf("[Proxy] Session %s → %s%n", sessionId, target);
+
+            // 🔔 Уведомить агента (POST /poll) — чтобы агент знал sessionId
+            try {
+                String notifyJson = String.format("{\"agentId\":\"%s\",\"sessionId\":\"%s\"}", AGENT_ID, sessionId);
+                Request notifyRequest = new Request.Builder()
+                        .url(NOTIFY_URL)
+                        .post(RequestBody.create(notifyJson, MediaType.get("application/json")))
+                        .build();
+
+                client.newCall(notifyRequest).execute().close();
+                System.out.println("[Proxy] Notified agent for session: " + sessionId);
+            } catch (Exception e) {
+                System.err.println("[Proxy] Failed to notify agent: " + e.getMessage());
+            }
 
             out.write(new byte[]{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0});
 

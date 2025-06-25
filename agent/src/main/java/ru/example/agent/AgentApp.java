@@ -19,7 +19,7 @@ import java.util.TimerTask;
 
 public class AgentApp {
     private static final String AGENT_ID = "agent-001";
-    private static final String POLL_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/poll?agentId=" + AGENT_ID;
+    private static final String BASE_POLL_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/poll";
     private static final String RELAY_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/relay-result";
 
     private static final OkHttpClient client = new OkHttpClient();
@@ -41,7 +41,11 @@ public class AgentApp {
         @Override
         public void run() {
             try {
-                Request pollRequest = new Request.Builder().url(POLL_URL).get().build();
+                Request pollRequest = new Request.Builder()
+                        .url(BASE_POLL_URL + "?agentId=" + AGENT_ID)
+                        .get()
+                        .build();
+
                 try (Response response = client.newCall(pollRequest).execute()) {
                     if (response.code() != 200 || response.body() == null) return;
 
@@ -51,9 +55,21 @@ public class AgentApp {
                     if (raw.isBlank() || raw.equals("[]")) return;
 
                     Map<String, Object> task = mapper.readValue(raw, Map.class);
-                    String sessionId = ((String) task.get("PK")).split("#")[1];
+                    String pk = (String) task.get("PK");
+                    String sessionId = pk != null && pk.contains("#") ? pk.split("#")[1] : null;
+
+                    if (sessionId == null) {
+                        System.err.println("[AGENT] No sessionId in PK");
+                        return;
+                    }
+
                     String target = (String) task.get("target");
                     String payloadBase64 = (String) task.get("payload");
+
+                    if (target == null || payloadBase64 == null) {
+                        System.err.println("[AGENT] Incomplete task object");
+                        return;
+                    }
 
                     System.out.printf("[AGENT] Handling session %s → %s%n", sessionId, target);
 
