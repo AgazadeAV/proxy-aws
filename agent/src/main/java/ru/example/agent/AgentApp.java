@@ -7,11 +7,13 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
+import javax.net.ssl.SSLSocketFactory;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Timer;
@@ -80,19 +82,46 @@ public class AgentApp {
                 int port = Integer.parseInt(parts[1]);
                 byte[] payload = Base64.getDecoder().decode(payloadBase64);
 
-                try (Socket socket = new Socket(host, port)) {
+                Socket socket;
+                if (port == 443) {
+                    SSLSocketFactory sslSocketFactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+                    socket = sslSocketFactory.createSocket(host, port);
+                } else {
+                    socket = new Socket(host, port);
+                }
+
+                try (socket) {
+                    socket.setSoTimeout(3000);
                     OutputStream out = socket.getOutputStream();
                     InputStream in = socket.getInputStream();
 
                     out.write(payload);
                     out.flush();
 
+                    ByteArrayOutputStream resultStream = new ByteArrayOutputStream();
                     byte[] buffer = new byte[4096];
-                    int read = in.read(buffer);
-                    if (read == -1) return "";
+                    while (true) {
+                        try {
+                            int read = in.read(buffer);
+                            if (read == -1) {
+                                System.out.println("[AGENT] Socket closed by remote host (read == -1)");
+                                break;
+                            }
+                            resultStream.write(buffer, 0, read);
+                        } catch (SocketTimeoutException e) {
+                            System.out.println("[AGENT] Exiting read loop due to socket timeout");
+                            break;
+                        }
+                    }
 
-                    byte[] trimmed = Arrays.copyOfRange(buffer, 0, read);
-                    return Base64.getEncoder().encodeToString(trimmed);
+                    byte[] resultBytes = resultStream.toByteArray();
+                    if (resultBytes.length == 0) {
+                        System.out.println("[AGENT] Warning: Empty response");
+                    }
+                    String resultText = new String(resultBytes, StandardCharsets.UTF_8);
+                    System.out.println("[AGENT] Raw response: " + resultText);
+
+                    return Base64.getEncoder().encodeToString(resultBytes);
                 }
             } catch (Exception e) {
                 System.err.println("[AGENT] Handle error: " + e.getMessage());
