@@ -1,6 +1,7 @@
 package ru.example.agent;
 
 import javax.net.ssl.SSLSocketFactory;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
@@ -37,13 +38,26 @@ public class AgentSessionManager {
         Socket socket = sessions.get(sessionId);
         if (socket == null) throw new IllegalStateException("Session not found");
 
-        InputStream in = socket.getInputStream();
-        byte[] buffer = new byte[4096];
-        int read = in.read(buffer);
-        if (read == -1) throw new IllegalStateException("Connection closed");
+        socket.setSoTimeout(2000); // 2 секунды timeout на read
 
-        byte[] result = new byte[read];
-        System.arraycopy(buffer, 0, result, 0, read);
-        return result;
+        InputStream in = socket.getInputStream();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+
+        try {
+            while (true) {
+                int read = in.read(buffer);
+                if (read == -1) break; // сокет закрыт
+                baos.write(buffer, 0, read);
+
+                // если данных пока нет — выйдем после таймаута
+                if (in.available() == 0) break;
+            }
+        } catch (java.net.SocketTimeoutException e) {
+            // читаем всё, что успело прийти
+        }
+
+        return baos.toByteArray();
     }
+
 }
