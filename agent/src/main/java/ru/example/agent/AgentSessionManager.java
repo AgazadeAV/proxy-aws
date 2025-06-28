@@ -12,12 +12,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AgentSessionManager {
     private static final Map<String, Socket> sessions = new ConcurrentHashMap<>();
 
-    public static void openSession(String sessionId, String target) throws Exception {
+    public static void connect(String sessionId, String host, int port) throws Exception {
         if (sessions.containsKey(sessionId)) return;
-
-        String[] parts = target.split(":");
-        String host = parts[0];
-        int port = Integer.parseInt(parts[1]);
 
         Socket socket = (port == 443)
                 ? SSLSocketFactory.getDefault().createSocket(host, port)

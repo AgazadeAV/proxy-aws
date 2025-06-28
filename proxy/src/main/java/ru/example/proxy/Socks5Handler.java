@@ -1,5 +1,6 @@
 package ru.example.proxy;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
@@ -31,8 +32,7 @@ public class Socks5Handler implements Runnable {
             for (int i = 0; i < nMethods; i++) in.read(); // consume methods
             out.write(new byte[]{0x05, 0x00}); // no auth
 
-            // Read request
-            if (in.read() != 0x05 || in.read() != 0x01) { // version + command
+            if (in.read() != 0x05 || in.read() != 0x01) {
                 System.err.println("Invalid request");
                 return;
             }
@@ -67,6 +67,20 @@ public class Socks5Handler implements Runnable {
             String sessionId = session.getKey();
             String token = session.getValue();
 
+            try {
+                ByteArrayOutputStream payload = new ByteArrayOutputStream();
+                payload.write(0x01);
+                payload.write(host.length());
+                payload.write(host.getBytes());
+                payload.write((port >> 8) & 0xFF);
+                payload.write(port & 0xFF);
+
+                relayClient.sendPayload(sessionId, token, payload.toByteArray());
+            } catch (Exception e) {
+                System.err.println("[CONNECT] Failed to send connect payload: " + e.getMessage());
+                return;
+            }
+
             Thread sender = new Thread(() -> {
                 try {
                     byte[] buf = new byte[4096];
@@ -74,7 +88,11 @@ public class Socks5Handler implements Runnable {
                     while ((read = in.read(buf)) != -1) {
                         byte[] data = new byte[read];
                         System.arraycopy(buf, 0, data, 0, read);
-                        relayClient.sendPayload(sessionId, token, data);
+
+                        ByteArrayOutputStream payload = new ByteArrayOutputStream();
+                        payload.write(0x02);
+                        payload.write(data);
+                        relayClient.sendPayload(sessionId, token, payload.toByteArray());
                     }
                 } catch (Exception e) {
                     System.err.println("[Sender] " + e.getMessage());
@@ -84,6 +102,10 @@ public class Socks5Handler implements Runnable {
             Thread receiver = new Thread(() -> {
                 try {
                     while (!Thread.currentThread().isInterrupted()) {
+                        ByteArrayOutputStream payload = new ByteArrayOutputStream();
+                        payload.write(0x03);
+                        relayClient.sendPayload(sessionId, token, payload.toByteArray());
+
                         byte[] response = relayClient.fetchPayload(sessionId);
                         if (response.length > 0) {
                             out.write(response);

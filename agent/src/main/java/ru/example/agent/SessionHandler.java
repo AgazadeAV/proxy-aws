@@ -15,26 +15,15 @@ public class SessionHandler {
         String token = (String) task.get("token");
         String payloadBase64 = (String) task.get("payload");
 
-        String parsedSessionId = SessionTokenUtil.parseSessionId(token);
-
-        if (!parsedSessionId.equals(sessionId)) {
+        if (!SessionTokenUtil.parseSessionId(token).equals(sessionId)) {
             throw new SecurityException("Invalid token for session");
         }
 
-        if (!AgentSessionManager.hasSession(sessionId)) {
-            String target = (String) task.get("target");
-            if (target == null || target.isBlank()) {
-                throw new IllegalArgumentException("Missing target for new session");
-            }
-            AgentSessionManager.openSession(sessionId, target);
-        }
-
         byte[] payload = Base64.getDecoder().decode(payloadBase64);
-        AgentSessionManager.sendData(sessionId, payload);
 
-        byte[] response = AgentSessionManager.receiveData(sessionId);
+        byte[] response = AgentLogic.process(sessionId, payload);
+
         String encoded = Base64.getEncoder().encodeToString(response);
-
         return "{\"sessionId\":\"" + sessionId + "\",\"payload\":\"" + encoded + "\"}";
     }
 }
