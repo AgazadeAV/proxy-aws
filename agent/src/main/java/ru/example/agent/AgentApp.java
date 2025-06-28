@@ -1,73 +1,72 @@
 package ru.example.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-import javax.net.ssl.SSLSocketFactory;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
 public class AgentApp {
-    private static final String AGENT_ID = "agent-001";
-    private static final String BASE_POLL_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/poll";
-    private static final String RELAY_URL = "https://sbbd0vxjdj.execute-api.us-east-2.amazonaws.com/prod/relay-result";
+    public static String AGENT_TOKEN;
+    public static final String AGENT_ID = "agent-001";
+    public static final String POLL_URL = "https://zvgi0d7fm8.execute-api.us-east-2.amazonaws.com/prod/session/task/poll";
+    public static final String RELAY_URL = "https://zvgi0d7fm8.execute-api.us-east-2.amazonaws.com/prod/session/result/submit";
 
     private static final OkHttpClient client = new OkHttpClient();
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    public static void main(String[] args) {
-        Timer timer = new Timer(true);
-        timer.scheduleAtFixedRate(new TaskPoller(), 0, 1000);
-
-        System.out.println("[AGENT] Started polling loop. Press Ctrl+C to stop.");
-        while (true) {
-            try {
-                Thread.sleep(10_000);
-            } catch (InterruptedException ignored) {}
+    public static void main(String[] args) throws Exception {
+        // Чтение токена из аргументов -c
+        for (int i = 0; i < args.length - 1; i++) {
+            if ("-c".equals(args[i])) {
+                AGENT_TOKEN = args[i + 1];
+                break;
+            }
         }
+
+        if (AGENT_TOKEN == null) {
+            System.err.println("Usage: java -jar agent.jar -c <token>");
+            System.exit(1);
+        }
+
+        System.out.println("[AGENT] Started with token: " + AGENT_TOKEN);
+
+        Timer timer = new Timer(true);
+        timer.scheduleAtFixedRate(new PollTask(), 0, 1000);
+
+        while (true) Thread.sleep(10_000);
     }
 
-    static class TaskPoller extends TimerTask {
+    static class PollTask extends TimerTask {
         @Override
         public void run() {
             try {
-                Request pollRequest = new Request.Builder()
-                        .url(BASE_POLL_URL + "?agentId=" + AGENT_ID)
+                HttpUrl url = HttpUrl.parse(POLL_URL).newBuilder()
+                        .addQueryParameter("agentId", AGENT_ID)
+                        .build();
+
+                Request request = new Request.Builder()
+                        .url(url)
                         .get()
                         .build();
 
-                try (Response response = client.newCall(pollRequest).execute()) {
+                try (Response response = client.newCall(request).execute()) {
                     if (response.code() != 200 || response.body() == null) return;
 
                     String raw = response.body().string();
-                    System.out.println("[AGENT] Raw task: " + raw);
-
                     if (raw.isBlank() || raw.equals("[]")) return;
 
+                    System.out.println("[AGENT] Task received: " + raw);
+
                     Map<String, Object> task = mapper.readValue(raw, Map.class);
-                    String target = (String) task.get("target");
-                    String payloadBase64 = (String) task.get("payload");
 
-                    if (target == null || payloadBase64 == null) {
-                        System.err.println("[AGENT] Incomplete task object");
-                        return;
-                    }
-
-                    System.out.printf("[AGENT] Handling → %s%n", target);
-
-                    String result = handleSession(target, payloadBase64);
+                    String result = new SessionHandler().handle(mapper.writeValueAsString(task));
                     sendResult(result);
                 }
             } catch (Exception e) {
@@ -75,77 +74,16 @@ public class AgentApp {
             }
         }
 
-        private String handleSession(String target, String payloadBase64) {
+        private void sendResult(String resultJson) {
             try {
-                String[] parts = target.split(":");
-                String host = parts[0];
-                int port = Integer.parseInt(parts[1]);
-                byte[] payload = Base64.getDecoder().decode(payloadBase64);
+                RequestBody body = RequestBody.create(resultJson, MediaType.get("application/json"));
+                Request post = new Request.Builder().url(RELAY_URL).post(body).build();
 
-                Socket socket;
-                if (port == 443) {
-                    SSLSocketFactory sslSocketFactory = (SSLSocketFactory) SSLSocketFactory.getDefault();
-                    socket = sslSocketFactory.createSocket(host, port);
-                } else {
-                    socket = new Socket(host, port);
-                }
-
-                try (socket) {
-                    socket.setSoTimeout(3000);
-                    OutputStream out = socket.getOutputStream();
-                    InputStream in = socket.getInputStream();
-
-                    out.write(payload);
-                    out.flush();
-
-                    ByteArrayOutputStream resultStream = new ByteArrayOutputStream();
-                    byte[] buffer = new byte[4096];
-                    while (true) {
-                        try {
-                            int read = in.read(buffer);
-                            if (read == -1) {
-                                System.out.println("[AGENT] Socket closed by remote host (read == -1)");
-                                break;
-                            }
-                            resultStream.write(buffer, 0, read);
-                        } catch (SocketTimeoutException e) {
-                            System.out.println("[AGENT] Exiting read loop due to socket timeout");
-                            break;
-                        }
-                    }
-
-                    byte[] resultBytes = resultStream.toByteArray();
-                    if (resultBytes.length == 0) {
-                        System.out.println("[AGENT] Warning: Empty response");
-                    }
-                    String resultText = new String(resultBytes, StandardCharsets.UTF_8);
-                    System.out.println("[AGENT] Raw response: " + resultText);
-
-                    return Base64.getEncoder().encodeToString(resultBytes);
+                try (Response resp = client.newCall(post).execute()) {
+                    System.out.println("[AGENT] Sent result. Status: " + resp.code());
                 }
             } catch (Exception e) {
-                System.err.println("[AGENT] Handle error: " + e.getMessage());
-                return Base64.getEncoder().encodeToString(("[AGENT ERROR] " + e.getMessage()).getBytes(StandardCharsets.UTF_8));
-            }
-        }
-
-        private void sendResult(String base64) {
-            try {
-                String json = mapper.writeValueAsString(Map.of(
-                        "agentId", AGENT_ID,
-                        "payload", base64
-                ));
-
-                Request post = new Request.Builder()
-                        .url(RELAY_URL)
-                        .post(RequestBody.create(json, MediaType.get("application/json")))
-                        .build();
-
-                try (Response response = client.newCall(post).execute()) {
-                    System.out.println("[AGENT] Relay status: " + response.code());
-                }
-            } catch (Exception e) {
-                System.err.println("[AGENT] Relay error: " + e.getMessage());
+                System.err.println("[AGENT] Failed to send result: " + e.getMessage());
             }
         }
     }
