@@ -19,7 +19,7 @@ public class ProxyApp {
         SessionManager sessionManager = new SessionManager(relayClient);
 
         // 👉 Поток для ввода команд с клавиатуры
-        Thread commandThread = new Thread(() -> handleCommands(sessionManager, relayClient));
+        Thread commandThread = new Thread(() -> handleCommands(sessionManager));
         commandThread.setDaemon(true);
         commandThread.start();
 
@@ -36,7 +36,7 @@ public class ProxyApp {
         }
     }
 
-    private static void handleCommands(SessionManager sessionManager, RelayClient relayClient) {
+    private static void handleCommands(SessionManager sessionManager) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             String line;
             while ((line = reader.readLine()) != null) {
