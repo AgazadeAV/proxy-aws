@@ -83,13 +83,6 @@ public class Socks5Handler implements Runnable {
 
                 System.out.println("[CONNECT] 📤 Sending CONNECT payload to agent");
                 relayClient.sendPayload(sessionId, token, payload.toByteArray());
-
-                byte[] response = relayClient.sendAndReceive(sessionId, token, new byte[]{0x03});
-                System.out.println("[CONNECT] 📥 Received response: " + response.length + " bytes");
-                if (response.length > 0) {
-                    out.write(response);
-                    out.flush();
-                }
             } catch (Exception e) {
                 System.err.println("[CONNECT] ❌ Failed to send connect payload: " + e.getMessage());
                 return;

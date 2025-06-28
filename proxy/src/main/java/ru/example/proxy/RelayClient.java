@@ -102,12 +102,6 @@ public class RelayClient {
         }
     }
 
-    public byte[] sendAndReceive(String sessionId, String token, byte[] payload) throws Exception {
-        System.out.println("[sendAndReceive] Sending and receiving in one shot");
-        sendPayload(sessionId, token, payload);
-        return fetchPayload(sessionId);
-    }
-
     private String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
