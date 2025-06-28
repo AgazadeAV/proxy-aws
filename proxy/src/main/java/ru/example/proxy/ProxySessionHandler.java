@@ -22,6 +22,8 @@ public class ProxySessionHandler {
     private static final String CLOSE_URL = "https://zvgi0d7fm8.execute-api.us-east-2.amazonaws.com/prod/session/%s";
 
     public static void openSession(String sessionId, String token) throws Exception {
+        System.out.println("[ProxySession] Opening session: " + sessionId);
+
         Map<String, Object> json = new HashMap<>();
         json.put("sessionId", sessionId);
         json.put("token", token);
@@ -31,12 +33,10 @@ public class ProxySessionHandler {
                 MediaType.get("application/json")
         );
 
-        Request req = new Request.Builder()
-                .url(OPEN_URL)
-                .post(body)
-                .build();
+        Request req = new Request.Builder().url(OPEN_URL).post(body).build();
 
         try (Response response = client.newCall(req).execute()) {
+            System.out.println("[ProxySession] Open session response: " + response.code());
             if (!response.isSuccessful()) {
                 throw new RuntimeException("Failed to open session: " + response.code());
             }
@@ -49,15 +49,15 @@ public class ProxySessionHandler {
         json.put("token", token);
         json.put("payload", Base64.getEncoder().encodeToString(data));
 
-        RequestBody body = RequestBody.create(
-                mapper.writeValueAsString(json),
-                MediaType.get("application/json")
-        );
+        String payloadJson = mapper.writeValueAsString(json);
+        System.out.println("[ProxySession] Sending payload of size: " + data.length);
 
+        RequestBody body = RequestBody.create(payloadJson, MediaType.get("application/json"));
         Request request = new Request.Builder().url(ENQUEUE_URL).post(body).build();
+
         try (Response response = client.newCall(request).execute()) {
             if (response.code() >= 300) {
-                System.err.println("[Proxy] Error response: " + response.code());
+                System.err.println("[ProxySession] Error response: " + response.code());
             }
         }
     }
@@ -69,31 +69,40 @@ public class ProxySessionHandler {
 
         Request request = new Request.Builder().url(url).get().build();
         try (Response response = client.newCall(request).execute()) {
-            if (response.code() != 200 || response.body() == null) return new byte[0];
+            if (response.code() != 200 || response.body() == null) {
+                System.out.println("[ProxySession] No data available");
+                return new byte[0];
+            }
 
             String body = response.body().string();
             Map<String, Object> map = mapper.readValue(body, Map.class);
             String payload = (String) map.get("payload");
-            return Base64.getDecoder().decode(payload);
+
+            if (payload == null || payload.isBlank()) {
+                System.out.println("[ProxySession] Empty payload");
+                return new byte[0];
+            }
+
+            byte[] decoded = Base64.getDecoder().decode(payload);
+            System.out.println("[ProxySession] Received payload of size: " + decoded.length);
+            return decoded;
         }
     }
 
     public static void close(String sessionId, String token) {
         String url = String.format(CLOSE_URL, sessionId);
 
-        Request request = new Request.Builder()
-                .url(url)
-                .delete()
-                .build();
+        Request request = new Request.Builder().url(url).delete().build();
 
         try (Response response = client.newCall(request).execute()) {
             if (response.code() != 200) {
-                System.err.println("[Proxy] Failed to close session: " + response.code());
+                System.err.println("[ProxySession] Failed to close session: " + response.code());
             } else {
-                System.out.println("[Proxy] Session closed: " + sessionId);
+                System.out.println("[ProxySession] Session closed: " + sessionId);
             }
         } catch (Exception e) {
-            System.err.println("[Proxy] Close session error: " + e.getMessage());
+            System.err.println("[ProxySession] Close session error: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }

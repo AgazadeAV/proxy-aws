@@ -10,6 +10,8 @@ public class SessionHandler {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public String handle(String jsonRequest) throws Exception {
+        System.out.println("[Handler] Incoming task: " + jsonRequest);
+
         Map<String, Object> req = mapper.readValue(jsonRequest, Map.class);
 
         String sessionId = (String) req.get("sessionId");
@@ -17,18 +19,24 @@ public class SessionHandler {
         String target = (String) req.get("target");
         String payloadBase64 = (String) req.get("payload");
 
-        // Валидация токена
         String parsedSessionId = SessionTokenUtil.parseSessionId(token);
+        System.out.println("[Handler] Token parsed: " + parsedSessionId);
+
         if (!parsedSessionId.equals(sessionId)) {
             throw new SecurityException("Invalid token for session");
         }
 
-        // Выполнение запроса
         AgentSessionManager.openSession(sessionId, target);
-        AgentSessionManager.sendData(sessionId, Base64.getDecoder().decode(payloadBase64));
-        byte[] received = AgentSessionManager.receiveData(sessionId);
-        String encoded = Base64.getEncoder().encodeToString(received);
+        System.out.println("[Handler] Connected to: " + target);
 
+        byte[] payload = Base64.getDecoder().decode(payloadBase64);
+        AgentSessionManager.sendData(sessionId, payload);
+        System.out.println("[Handler] Sent data: " + payload.length + " bytes");
+
+        byte[] received = AgentSessionManager.receiveData(sessionId);
+        System.out.println("[Handler] Received data: " + received.length + " bytes");
+
+        String encoded = Base64.getEncoder().encodeToString(received);
         return "{\"payload\":\"" + encoded + "\"}";
     }
 }

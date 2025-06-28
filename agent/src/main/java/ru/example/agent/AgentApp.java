@@ -22,7 +22,6 @@ public class AgentApp {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public static void main(String[] args) throws Exception {
-        // Чтение токена из аргументов -c
         for (int i = 0; i < args.length - 1; i++) {
             if ("-c".equals(args[i])) {
                 AGENT_TOKEN = args[i + 1];
@@ -51,31 +50,40 @@ public class AgentApp {
                         .addQueryParameter("agentId", AGENT_ID)
                         .build();
 
+                System.out.println("[AGENT] Polling from: " + url);
+
                 Request request = new Request.Builder()
                         .url(url)
                         .get()
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    if (response.code() != 200 || response.body() == null) return;
+                    if (response.code() != 200 || response.body() == null) {
+                        System.out.println("[AGENT] No response or error: " + response.code());
+                        return;
+                    }
 
                     String raw = response.body().string();
-                    if (raw.isBlank() || raw.equals("[]")) return;
+                    System.out.println("[AGENT] Raw response: " + raw);
 
-                    System.out.println("[AGENT] Task received: " + raw);
+                    if (raw.isBlank() || raw.equals("[]")) {
+                        System.out.println("[AGENT] Empty task response");
+                        return;
+                    }
 
                     Map<String, Object> task = mapper.readValue(raw, Map.class);
-
                     String result = new SessionHandler().handle(mapper.writeValueAsString(task));
                     sendResult(result);
                 }
             } catch (Exception e) {
                 System.err.println("[AGENT] Poll error: " + e.getMessage());
+                e.printStackTrace();
             }
         }
 
         private void sendResult(String resultJson) {
             try {
+                System.out.println("[AGENT] Sending result: " + resultJson);
                 RequestBody body = RequestBody.create(resultJson, MediaType.get("application/json"));
                 Request post = new Request.Builder().url(RELAY_URL).post(body).build();
 
@@ -84,6 +92,7 @@ public class AgentApp {
                 }
             } catch (Exception e) {
                 System.err.println("[AGENT] Failed to send result: " + e.getMessage());
+                e.printStackTrace();
             }
         }
     }

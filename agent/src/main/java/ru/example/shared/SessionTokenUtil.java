@@ -13,8 +13,11 @@ public class SessionTokenUtil {
         cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(SECRET.getBytes(), ALGO));
         String decrypted = new String(cipher.doFinal(Base64.getDecoder().decode(token)));
         String[] parts = decrypted.split(":");
+
         long ts = Long.parseLong(parts[1]);
         if (System.currentTimeMillis() - ts > 30_000) throw new RuntimeException("Token expired");
+
+        System.out.println("[TokenUtil] Decrypted sessionId: " + parts[0]);
         return parts[0];
     }
 }

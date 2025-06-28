@@ -18,11 +18,14 @@ public class AgentSessionManager {
         String host = parts[0];
         int port = Integer.parseInt(parts[1]);
 
+        System.out.println("[SessionManager] Opening connection to " + target);
+
         Socket socket = (port == 443)
                 ? SSLSocketFactory.getDefault().createSocket(host, port)
                 : new Socket(host, port);
 
         sessions.put(sessionId, socket);
+        System.out.println("[SessionManager] Session opened: " + sessionId);
     }
 
     public static void sendData(String sessionId, byte[] data) throws Exception {
@@ -32,14 +35,15 @@ public class AgentSessionManager {
         OutputStream out = socket.getOutputStream();
         out.write(data);
         out.flush();
+
+        System.out.println("[SessionManager] Data sent: " + data.length + " bytes");
     }
 
     public static byte[] receiveData(String sessionId) throws Exception {
         Socket socket = sessions.get(sessionId);
         if (socket == null) throw new IllegalStateException("Session not found");
 
-        socket.setSoTimeout(2000); // 2 секунды timeout на read
-
+        socket.setSoTimeout(2000);
         InputStream in = socket.getInputStream();
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buffer = new byte[4096];
@@ -47,17 +51,16 @@ public class AgentSessionManager {
         try {
             while (true) {
                 int read = in.read(buffer);
-                if (read == -1) break; // сокет закрыт
+                if (read == -1) break;
                 baos.write(buffer, 0, read);
-
-                // если данных пока нет — выйдем после таймаута
                 if (in.available() == 0) break;
             }
         } catch (java.net.SocketTimeoutException e) {
-            // читаем всё, что успело прийти
+            System.out.println("[SessionManager] Read timeout, partial read");
         }
 
-        return baos.toByteArray();
+        byte[] result = baos.toByteArray();
+        System.out.println("[SessionManager] Data received: " + result.length + " bytes");
+        return result;
     }
-
 }
