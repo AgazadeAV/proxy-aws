@@ -75,7 +75,7 @@ public class Socks5Handler implements Runnable {
 
             try {
                 ByteArrayOutputStream payload = new ByteArrayOutputStream();
-                payload.write(0x01);
+                payload.write(0x01); // CONNECT
                 payload.write(host.length());
                 payload.write(host.getBytes());
                 payload.write((port >> 8) & 0xFF);
@@ -93,14 +93,14 @@ public class Socks5Handler implements Runnable {
                     byte[] buf = new byte[4096];
                     int read;
                     while ((read = in.read(buf)) != -1) {
-                        byte[] data = new byte[read];
-                        System.arraycopy(buf, 0, data, 0, read);
-                        System.out.printf("[Sender] 🔼 Forwarding %d bytes to agent%n", read);
+                        if (read > 0) {
+                            ByteArrayOutputStream payload = new ByteArrayOutputStream();
+                            payload.write(0x02); // SEND
+                            payload.write(buf, 0, read);
 
-                        ByteArrayOutputStream payload = new ByteArrayOutputStream();
-                        payload.write(0x02);
-                        payload.write(data);
-                        relayClient.sendPayload(sessionId, token, payload.toByteArray());
+                            System.out.printf("[Sender] 🔼 Forwarding %d bytes to agent%n", read);
+                            relayClient.sendPayload(sessionId, token, payload.toByteArray());
+                        }
                     }
                     System.out.println("[Sender] 🔚 Client stream ended");
                 } catch (Exception e) {
@@ -110,9 +110,10 @@ public class Socks5Handler implements Runnable {
 
             Thread receiver = new Thread(() -> {
                 try {
+                    int emptyCount = 0;
                     while (!Thread.currentThread().isInterrupted()) {
                         ByteArrayOutputStream payload = new ByteArrayOutputStream();
-                        payload.write(0x03);
+                        payload.write(0x03); // RECEIVE
                         relayClient.sendPayload(sessionId, token, payload.toByteArray());
 
                         byte[] response = relayClient.fetchPayload(sessionId);
@@ -120,11 +121,16 @@ public class Socks5Handler implements Runnable {
                             System.out.printf("[Receiver] 🔽 Received %d bytes from agent%n", response.length);
                             out.write(response);
                             out.flush();
+                            emptyCount = 0;
                         } else {
+                            emptyCount++;
+                            if (emptyCount >= 5) {
+                                System.out.println("[Receiver] 💤 No data from agent, stopping receiver");
+                                break;
+                            }
                             Thread.sleep(100);
                         }
                     }
-                    System.out.println("[Receiver] 🔚 Thread interrupted");
                 } catch (Exception e) {
                     System.err.println("[Receiver] ❌ Error: " + e.getMessage());
                 }
