@@ -42,11 +42,10 @@ public class RelayClient {
         }
     }
 
-    public void sendPayload(String sessionId, String token, String target, byte[] data) throws Exception {
+    public void sendPayload(String sessionId, String token, byte[] data) throws Exception {
         Map<String, Object> json = new HashMap<>();
         json.put("sessionId", sessionId);
         json.put("token", token);
-        json.put("target", target);
         json.put("payload", Base64.getEncoder().encodeToString(data));
 
         RequestBody body = RequestBody.create(mapper.writeValueAsString(json), MediaType.get("application/json"));

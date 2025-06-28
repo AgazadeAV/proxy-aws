@@ -44,7 +44,6 @@ public class PollTask extends TimerTask {
                 task.put("sessionId", sessionId);
 
                 String resultJson = new SessionHandler().handle(mapper.writeValueAsString(task));
-                System.out.println(resultJson);
                 ResultSender.send(resultJson);
             }
         } catch (Exception e) {

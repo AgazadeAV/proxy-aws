@@ -59,4 +59,7 @@ public class AgentSessionManager {
         return buffer.toByteArray();
     }
 
+    public static boolean hasSession(String sessionId) {
+        return sessions.containsKey(sessionId);
+    }
 }

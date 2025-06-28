@@ -74,7 +74,7 @@ public class Socks5Handler implements Runnable {
                     while ((read = in.read(buf)) != -1) {
                         byte[] data = new byte[read];
                         System.arraycopy(buf, 0, data, 0, read);
-                        relayClient.sendPayload(sessionId, token, target, data);
+                        relayClient.sendPayload(sessionId, token, data);
                     }
                 } catch (Exception e) {
                     System.err.println("[Sender] " + e.getMessage());
