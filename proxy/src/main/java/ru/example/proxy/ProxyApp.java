@@ -125,7 +125,7 @@ public class ProxyApp {
                     while ((read = in.read(buf)) != -1) {
                         byte[] actual = new byte[read];
                         System.arraycopy(buf, 0, actual, 0, read);
-                        ProxySessionHandler.send(sessionId, token, actual);
+                        ProxySessionHandler.send(sessionId, token, target, actual);
                         System.out.println("[Sender] Sent " + read + " bytes");
                     }
                 } catch (Exception e) {

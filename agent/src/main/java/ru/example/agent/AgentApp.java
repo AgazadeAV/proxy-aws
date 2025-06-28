@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import ru.example.shared.SessionTokenUtil;
 
 import java.util.Map;
 import java.util.Timer;
@@ -46,8 +47,10 @@ public class AgentApp {
         @Override
         public void run() {
             try {
+                String sessionId = SessionTokenUtil.parseSessionId(AGENT_TOKEN);
+
                 HttpUrl url = HttpUrl.parse(POLL_URL).newBuilder()
-                        .addQueryParameter("agentId", AGENT_ID)
+                        .addQueryParameter("sessionId", sessionId)
                         .build();
 
                 System.out.println("[AGENT] Polling from: " + url);

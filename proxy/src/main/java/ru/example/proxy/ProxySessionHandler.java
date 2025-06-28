@@ -43,10 +43,11 @@ public class ProxySessionHandler {
         }
     }
 
-    public static void send(String sessionId, String token, byte[] data) throws Exception {
+    public static void send(String sessionId, String token, String target, byte[] data) throws Exception {
         Map<String, Object> json = new HashMap<>();
         json.put("sessionId", sessionId);
         json.put("token", token);
+        json.put("target", target); // ← ВАЖНО: добавляем это!
         json.put("payload", Base64.getEncoder().encodeToString(data));
 
         String payloadJson = mapper.writeValueAsString(json);
