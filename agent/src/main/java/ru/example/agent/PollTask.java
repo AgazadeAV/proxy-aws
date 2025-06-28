@@ -21,33 +21,43 @@ public class PollTask extends TimerTask {
     public void run() {
         try {
             String sessionId = SessionTokenUtil.parseSessionId(token);
+            System.out.printf("[PollTask] 🔄 Polling for session: %s%n", sessionId);
 
             HttpUrl url = HttpUrl.parse(POLL_URL).newBuilder()
                     .addQueryParameter("sessionId", sessionId)
                     .build();
 
             Request request = new Request.Builder().url(url).get().build();
+
             try (Response response = client.newCall(request).execute()) {
-                if (response.code() != 200 || response.body() == null) {
-                    System.out.println("[PollTask] No task or error: " + response.code());
+                int code = response.code();
+
+                if (code != 200 || response.body() == null) {
+                    System.out.printf("[PollTask] ⚠️ Poll failed: HTTP %d%n", code);
                     return;
                 }
 
-                String raw = response.body().string();
+                String raw = response.body().string().trim();
+
                 if (raw.isBlank() || raw.equals("[]")) {
-                    System.out.println("[PollTask] No task available.");
+                    System.out.printf("[PollTask] ⏳ No task available for session: %s%n", sessionId);
                     return;
                 }
+
+                System.out.printf("[PollTask] ✅ Task received: %s%n", raw);
 
                 Map<String, Object> task = mapper.readValue(raw, Map.class);
                 task.put("token", token);
                 task.put("sessionId", sessionId);
 
-                String resultJson = new SessionHandler().handle(mapper.writeValueAsString(task));
+                String input = mapper.writeValueAsString(task);
+                String resultJson = new SessionHandler().handle(input);
+
+                System.out.printf("[PollTask] 📤 Sending result: %s%n", resultJson);
                 ResultSender.send(resultJson);
             }
         } catch (Exception e) {
-            System.err.println("[PollTask] Error polling or handling: " + e.getMessage());
+            System.err.printf("[PollTask] ❌ Error: %s%n", e.getMessage());
             e.printStackTrace();
         }
     }

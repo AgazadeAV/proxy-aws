@@ -77,4 +77,10 @@ public class RelayClient {
             return payload != null ? Base64.getDecoder().decode(payload) : new byte[0];
         }
     }
+
+    public byte[] sendAndReceive(String sessionId, String token, byte[] payload) throws Exception {
+        sendPayload(sessionId, token, payload);
+        return fetchPayload(sessionId);
+    }
+
 }
