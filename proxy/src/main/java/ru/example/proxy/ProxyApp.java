@@ -40,7 +40,7 @@ public class ProxyApp {
                         break;
                     }
                     sessionId = UUID.randomUUID().toString();
-                    token = Base64.getEncoder().encodeToString((sessionId + ":secret").getBytes());
+                    token = Base64.getEncoder().encodeToString((sessionId).getBytes());
                     relayClient.openSession(sessionId, token);
                     startSocksServer(relayClient, sessionId);
                     System.out.println("[ProxyApp] Session started:");

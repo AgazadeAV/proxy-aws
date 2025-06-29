@@ -42,7 +42,7 @@ public class AgentApp {
     private static String extractSessionId(String token) {
         try {
             byte[] decoded = Base64.getDecoder().decode(token);
-            return new String(decoded); // токен просто содержит sessionId, можно усложнить при необходимости
+            return new String(decoded);
         } catch (Exception e) {
             return null;
         }
