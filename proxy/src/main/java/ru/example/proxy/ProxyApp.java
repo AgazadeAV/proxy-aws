@@ -1,83 +1,89 @@
 package ru.example.proxy;
 
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
+
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.UUID;
 
 public class ProxyApp {
-    private static final int PORT = 1080;
 
-    public static void main(String[] args) {
+    private static final int PORT = 1080;
+    private static final String BASE_URL = "https://zvgi0d7fm8.execute-api.us-east-2.amazonaws.com/prod";
+
+    public static void main(String[] args) throws Exception {
         System.out.println("[ProxyApp] Starting SOCKS5 proxy on port " + PORT);
 
-        ExecutorService executor = Executors.newFixedThreadPool(50);
-        RelayClient relayClient = new RelayClient();
+        RelayClient relayClient = new RelayClient(BASE_URL);
         SessionManager sessionManager = new SessionManager(relayClient);
 
-        // 👉 Поток для ввода команд с клавиатуры
+        // CLI-поток
         Thread commandThread = new Thread(() -> handleCommands(sessionManager));
         commandThread.setDaemon(true);
         commandThread.start();
 
-        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
-            while (true) {
-                Socket clientSocket = serverSocket.accept();
-                executor.submit(() -> {
-                    new Socks5Handler(clientSocket, sessionManager, relayClient).run();
-                });
-            }
-        } catch (IOException e) {
-            System.err.println("[ProxyApp] Server error: " + e.getMessage());
-            e.printStackTrace();
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        EventLoopGroup workerGroup = new NioEventLoopGroup();
+
+        try {
+            ServerBootstrap bootstrap = new ServerBootstrap();
+            bootstrap.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new Socks5ServerInitializer(relayClient, sessionManager));
+
+            ChannelFuture future = bootstrap.bind(PORT).sync();
+            System.out.println("[ProxyApp] SOCKS5 proxy started on port " + PORT);
+            future.channel().closeFuture().sync();
+        } finally {
+            bossGroup.shutdownGracefully();
+            workerGroup.shutdownGracefully();
         }
     }
 
     private static void handleCommands(SessionManager sessionManager) {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String[] args = line.trim().split("\\s+");
-                if (args.length == 0) continue;
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        System.out.println("[CLI] Введи команду: open | close <sessionId> | list | exit");
 
-                String cmd = args[0];
+        while (true) {
+            try {
+                String line = reader.readLine();
+                if (line == null || line.isBlank()) continue;
+
+                String[] parts = line.trim().split("\\s+");
+                String cmd = parts[0];
+
                 switch (cmd) {
                     case "open" -> {
-                        String sessionId = args.length > 1 ? args[1] : sessionManager.createSession();
-                        System.out.println("✅ Открыта сессия: " + sessionId);
+                        String id = UUID.randomUUID().toString();
+                        sessionManager.createManualSession(id);
+                        System.out.println("✅ Открыта ручная сессия: " + id);
                     }
                     case "close" -> {
-                        if (args.length < 2) {
-                            System.out.println("❌ Укажи sessionId");
-                            continue;
+                        if (parts.length < 2) {
+                            System.out.println("⚠ Укажи sessionId");
+                            break;
                         }
-                        String sessionId = args[1];
-                        try {
-                            sessionManager.closeSession(sessionId);
-                        } catch (Exception e) {
-                            System.err.println("❌ Ошибка закрытия сессии: " + e.getMessage());
-                        }
+                        sessionManager.closeManualSession(parts[1]);
+                        System.out.println("🗑 Закрыта сессия: " + parts[1]);
                     }
                     case "list" -> {
-                        var sessions = sessionManager.getAllSessions();
-                        if (sessions.isEmpty()) {
-                            System.out.println("Нет активных сессий.");
-                        } else {
-                            sessions.forEach((k, v) -> System.out.println("📌 " + k));
-                        }
+                        var all = sessionManager.getManualSessions();
+                        if (all.isEmpty()) System.out.println("🔍 Нет активных ручных сессий");
+                        else all.forEach((id, token) -> System.out.println("📌 " + id + " : " + token));
                     }
                     case "exit" -> {
-                        System.out.println("⏹ Остановка приложения...");
+                        System.out.println("⏹ Завершение работы...");
                         System.exit(0);
                     }
                     default -> System.out.println("⚠ Неизвестная команда: open | close <id> | list | exit");
                 }
+            } catch (Exception e) {
+                System.err.println("[CLI] Ошибка: " + e.getMessage());
             }
-        } catch (IOException e) {
-            System.err.println("Ошибка ввода команд: " + e.getMessage());
         }
     }
 }
