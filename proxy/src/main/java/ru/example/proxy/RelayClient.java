@@ -1,12 +1,7 @@
 package ru.example.proxy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import okhttp3.HttpUrl;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
+import okhttp3.*;
 
 import java.io.IOException;
 import java.util.Base64;
@@ -25,35 +20,50 @@ public class RelayClient {
     public void openSession(String sessionId, String token) throws IOException {
         HttpUrl url = HttpUrl.parse(baseUrl + "/session/open");
         Map<String, String> body = Map.of("sessionId", sessionId, "token", token);
+        System.out.printf("[RelayClient] Opening session: %s%n", sessionId);
         post(url, body);
+        System.out.printf("[RelayClient] Session opened: %s%n", sessionId);
     }
 
     public void closeSession(String sessionId) throws IOException {
         HttpUrl url = HttpUrl.parse(baseUrl + "/session/" + sessionId);
-        assert url != null;
+        System.out.printf("[RelayClient] Closing session: %s%n", sessionId);
         Request request = new Request.Builder().url(url).delete().build();
         httpClient.newCall(request).execute().close();
+        System.out.printf("[RelayClient] Session closed: %s%n", sessionId);
     }
 
     public void sendPayload(String sessionId, byte[] payload) throws IOException {
         HttpUrl url = HttpUrl.parse(baseUrl + "/session/task/enqueue");
-        Map<String, Object> body = Map.of(
-                "sessionId", sessionId,
-                "payload", Base64.getEncoder().encodeToString(payload)
-        );
+        String encoded = Base64.getEncoder().encodeToString(payload);
+        Map<String, Object> body = Map.of("sessionId", sessionId, "payload", encoded);
+        System.out.printf("[RelayClient] Sending payload to session %s (%d bytes)%n", sessionId, payload.length);
         post(url, body);
+        System.out.printf("[RelayClient] Payload sent to session %s%n", sessionId);
     }
 
     public byte[] fetchPayload(String sessionId) throws IOException {
         HttpUrl url = Objects.requireNonNull(HttpUrl.parse(baseUrl + "/session/result/fetch"))
                 .newBuilder().addQueryParameter("sessionId", sessionId).build();
+
+        System.out.printf("[RelayClient] Fetching result for session %s...%n", sessionId);
         Request request = new Request.Builder().url(url).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
-            if (response.code() == 204) return null;
-            assert response.body() != null;
+            if (response.code() == 204) {
+                System.out.printf("[RelayClient] No result available for session %s (204)%n", sessionId);
+                return null;
+            }
+
+            if (!response.isSuccessful()) {
+                assert response.body() != null;
+                throw new IOException("Failed to fetch result: " + response.code() + " - " + response.body().string());
+            }
+
             String json = response.body().string();
             Map<?, ?> map = objectMapper.readValue(json, Map.class);
-            return Base64.getDecoder().decode((String) map.get("payload"));
+            byte[] decoded = Base64.getDecoder().decode((String) map.get("payload"));
+            System.out.printf("[RelayClient] Fetched %d bytes for session %s%n", decoded.length, sessionId);
+            return decoded;
         }
     }
 
@@ -63,10 +73,13 @@ public class RelayClient {
                 MediaType.get("application/json")
         );
         Request request = new Request.Builder().url(url).post(requestBody).build();
+
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 assert response.body() != null;
-                throw new IOException("Failed: " + response.code() + " - " + response.body().string());
+                String errorBody = response.body().string();
+                System.err.printf("[RelayClient] POST failed: %d - %s%n", response.code(), errorBody);
+                throw new IOException("POST failed: " + response.code() + " - " + errorBody);
             }
         }
     }

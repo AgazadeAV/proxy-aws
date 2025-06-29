@@ -19,16 +19,16 @@ public class Socks5ServerInitializer extends ChannelInitializer<SocketChannel> {
 
     @Override
     protected void initChannel(SocketChannel ch) {
-        ch.pipeline()
-                // Автоматически определяет SOCKS-протокол
-                .addLast(new SocksPortUnificationServerHandler())
+        String remoteAddr = ch.remoteAddress().toString();
+        System.out.printf("[Socks5Initializer] New connection from %s%n", remoteAddr);
 
-                // Декодеры SOCKS5
+        ch.pipeline()
+                .addLast(new SocksPortUnificationServerHandler())
                 .addLast(new Socks5InitialRequestDecoder())
                 .addLast(Socks5ServerEncoder.DEFAULT)
                 .addLast(new Socks5CommandRequestDecoder())
-
-                // Обработчик команд (CONNECT и т.д.)
                 .addLast(new Socks5ProxyHandler(relayClient, sessionManager));
+
+        System.out.printf("[Socks5Initializer] Pipeline initialized for %s%n", remoteAddr);
     }
 }

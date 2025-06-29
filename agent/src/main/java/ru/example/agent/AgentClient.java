@@ -23,20 +23,33 @@ public class AgentClient {
     }
 
     public byte[] pollTask(String sessionId) throws IOException {
-        HttpUrl url = Objects.requireNonNull(HttpUrl.parse(pollUrl)).newBuilder()
+        HttpUrl url = Objects.requireNonNull(HttpUrl.parse(pollUrl))
+                .newBuilder()
                 .addQueryParameter("sessionId", sessionId)
                 .build();
 
+        System.out.printf("[AgentClient] 📡 Polling task from %s%n", url);
+
         Request request = new Request.Builder().url(url).get().build();
         try (Response response = client.newCall(request).execute()) {
-            if (response.code() == 204) return null;
-            if (!response.isSuccessful()) throw new IOException("Failed to poll task: " + response);
+            if (response.code() == 204) {
+                System.out.printf("[AgentClient] ⛔ No task available (204)%n");
+                return null;
+            }
+            if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                System.err.printf("[AgentClient] ❌ Failed to poll task (%d): %s%n", response.code(), body);
+                throw new IOException("Failed to poll task: " + response);
+            }
 
             assert response.body() != null;
             String body = response.body().string();
             Map<String, Object> task = mapper.readValue(body, new TypeReference<>() {});
             String base64 = (String) task.get("payload");
-            return Base64.getDecoder().decode(base64);
+            byte[] decoded = Base64.getDecoder().decode(base64);
+
+            System.out.printf("[AgentClient] ✅ Task received: %d bytes%n", decoded.length);
+            return decoded;
         }
     }
 
@@ -47,6 +60,8 @@ public class AgentClient {
                 "payload", encoded
         ));
 
+        System.out.printf("[AgentClient] 📤 Submitting result (%d bytes) to %s%n", payload.length, submitUrl);
+
         Request request = new Request.Builder()
                 .url(submitUrl)
                 .post(RequestBody.create(json, JSON))
@@ -54,8 +69,12 @@ public class AgentClient {
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                System.err.printf("[AgentClient] ❌ Failed to submit result (%d): %s%n", response.code(), body);
                 throw new IOException("Failed to submit result: " + response);
             }
+
+            System.out.printf("[AgentClient] ✅ Result submitted for session %s%n", sessionId);
         }
     }
 }

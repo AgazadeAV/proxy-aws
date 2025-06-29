@@ -15,14 +15,13 @@ public class AgentApp {
             }
         }
 
-        if (token == null) {
-            System.err.println("Usage: java -jar agent.jar -c <token>");
+        if (token == null || token.isBlank()) {
+            System.err.println("[AgentApp] ❌ Usage: java -jar agent.jar -c <token>");
             System.exit(1);
         }
 
         String sessionId = TokenUtil.extractSessionId(token);
-
-        System.out.println("[AgentApp] Starting agent for session: " + sessionId);
+        System.out.printf("[AgentApp] ✅ Starting agent for session: %s (token: %s)%n", sessionId, token);
 
         AgentClient client = new AgentClient(BASE_URL);
         SessionSocketStore socketStore = new SessionSocketStore();
@@ -32,15 +31,20 @@ public class AgentApp {
             try {
                 byte[] task = client.pollTask(sessionId);
                 if (task == null) {
+                    System.out.printf("[AgentApp] ⏳ No task for session %s. Sleeping...%n", sessionId);
                     Thread.sleep(200);
                     continue;
                 }
 
+                System.out.printf("[AgentApp] 📥 Received task (%d bytes) for session %s%n", task.length, sessionId);
                 byte[] result = processor.process(sessionId, task);
+                System.out.printf("[AgentApp] ✅ Processed task, result = %d bytes%n", result.length);
+
                 client.submitResult(sessionId, result);
+                System.out.printf("[AgentApp] 📤 Submitted result for session %s%n", sessionId);
 
             } catch (Exception e) {
-                System.err.println("[AgentApp] Error: " + e.getMessage());
+                System.err.printf("[AgentApp] ❌ Error in session %s: %s%n", sessionId, e.getMessage());
                 try {
                     Thread.sleep(500);
                 } catch (InterruptedException ignored) {}

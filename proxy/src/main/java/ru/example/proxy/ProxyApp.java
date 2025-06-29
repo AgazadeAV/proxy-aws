@@ -36,11 +36,13 @@ public class ProxyApp {
                     .childHandler(new Socks5ServerInitializer(relayClient, sessionManager));
 
             ChannelFuture future = bootstrap.bind(PORT).sync();
-            System.out.println("[ProxyApp] SOCKS5 proxy started on port " + PORT);
+            System.out.printf("[ProxyApp] SOCKS5 proxy started and listening on 127.0.0.1:%d%n", PORT);
             future.channel().closeFuture().sync();
         } finally {
+            System.out.println("[ProxyApp] Shutting down proxy...");
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
+            System.out.println("[ProxyApp] Shutdown complete.");
         }
     }
 
@@ -60,29 +62,33 @@ public class ProxyApp {
                     case "open" -> {
                         String id = UUID.randomUUID().toString();
                         sessionManager.createManualSession(id);
-                        System.out.println("✅ Открыта ручная сессия: " + id);
+                        System.out.printf("[CLI] ✅ Открыта ручная сессия: %s%n", id);
                     }
                     case "close" -> {
                         if (parts.length < 2) {
-                            System.out.println("⚠ Укажи sessionId");
+                            System.out.println("[CLI] ⚠ Укажи sessionId");
                             break;
                         }
-                        sessionManager.closeManualSession(parts[1]);
-                        System.out.println("🗑 Закрыта сессия: " + parts[1]);
+                        String id = parts[1];
+                        sessionManager.closeManualSession(id);
+                        System.out.printf("[CLI] 🗑 Закрыта сессия: %s%n", id);
                     }
                     case "list" -> {
                         var all = sessionManager.getManualSessions();
-                        if (all.isEmpty()) System.out.println("🔍 Нет активных ручных сессий");
-                        else all.forEach((id, token) -> System.out.println("📌 " + id + " : " + token));
+                        if (all.isEmpty()) System.out.println("[CLI] 🔍 Нет активных ручных сессий");
+                        else {
+                            System.out.println("[CLI] 📋 Активные сессии:");
+                            all.forEach((id, token) -> System.out.println("  📌 " + id + " : " + token));
+                        }
                     }
                     case "exit" -> {
-                        System.out.println("⏹ Завершение работы...");
+                        System.out.println("[CLI] ⏹ Завершение работы...");
                         System.exit(0);
                     }
-                    default -> System.out.println("⚠ Неизвестная команда: open | close <id> | list | exit");
+                    default -> System.out.printf("[CLI] ⚠ Неизвестная команда: %s%n", cmd);
                 }
             } catch (Exception e) {
-                System.err.println("[CLI] Ошибка: " + e.getMessage());
+                System.err.printf("[CLI] Ошибка обработки команды: %s%n", e.getMessage());
             }
         }
     }

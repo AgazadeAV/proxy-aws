@@ -4,11 +4,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.codec.socksx.v5.DefaultSocks5CommandRequest;
-import io.netty.handler.codec.socksx.v5.DefaultSocks5CommandResponse;
-import io.netty.handler.codec.socksx.v5.Socks5CommandResponse;
-import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
-import io.netty.handler.codec.socksx.v5.Socks5CommandType;
+import io.netty.handler.codec.socksx.v5.*;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -36,10 +32,11 @@ public class Socks5ProxyHandler extends SimpleChannelInboundHandler<DefaultSocks
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, DefaultSocks5CommandRequest request) {
         if (request.type() == Socks5CommandType.CONNECT) {
-            // Создать сессию
-            this.session = sessionManager.createSession(ctx);
+            System.out.printf("[Socks5Handler] Received CONNECT request: %s:%d%n", request.dstAddr(), request.dstPort());
 
-            // Отправить успешный ответ клиенту
+            this.session = sessionManager.createSession(ctx);
+            System.out.printf("[Socks5Handler] Session created: %s%n", session.sessionId());
+
             Socks5CommandResponse response = new DefaultSocks5CommandResponse(
                     Socks5CommandStatus.SUCCESS,
                     request.dstAddrType(),
@@ -47,15 +44,17 @@ public class Socks5ProxyHandler extends SimpleChannelInboundHandler<DefaultSocks
                     request.dstPort()
             );
             ctx.writeAndFlush(response);
+            System.out.println("[Socks5Handler] Sent SUCCESS response to client");
 
-            // Запустить фоновый fetch loop
             scheduler.scheduleAtFixedRate(this::fetchFromAgent, 0, 200, TimeUnit.MILLISECONDS);
+            System.out.println("[Socks5Handler] Started fetch loop");
 
-            // Переключиться в raw mode (обработка байтов)
             ctx.pipeline().remove(this);
             ctx.pipeline().addLast(new RelayTrafficHandler(relayClient, session.sessionId()));
+            System.out.println("[Socks5Handler] Switched to RelayTrafficHandler");
 
         } else {
+            System.out.printf("[Socks5Handler] Unsupported command: %s%n", request.type());
             ctx.writeAndFlush(new DefaultSocks5CommandResponse(
                     Socks5CommandStatus.COMMAND_UNSUPPORTED,
                     request.dstAddrType()
@@ -66,6 +65,7 @@ public class Socks5ProxyHandler extends SimpleChannelInboundHandler<DefaultSocks
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
+        System.out.printf("[Socks5Handler] Channel inactive, cleaning up session: %s%n", session != null ? session.sessionId() : "null");
         sessionManager.closeSession(ctx);
         scheduler.shutdownNow();
     }
@@ -76,11 +76,12 @@ public class Socks5ProxyHandler extends SimpleChannelInboundHandler<DefaultSocks
         try {
             byte[] payload = relayClient.fetchPayload(session.sessionId());
             if (payload != null && payload.length > 0) {
+                System.out.printf("[Socks5Handler] Received %d bytes from agent for session %s%n", payload.length, session.sessionId());
                 ByteBuf buf = Unpooled.wrappedBuffer(payload);
                 ctx.writeAndFlush(buf);
             }
         } catch (Exception e) {
-            System.err.println("Fetch failed: " + e.getMessage());
+            System.err.printf("[Socks5Handler] Fetch failed for session %s: %s%n", session.sessionId(), e.getMessage());
         }
     }
 }
