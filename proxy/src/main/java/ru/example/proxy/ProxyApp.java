@@ -5,31 +5,98 @@ import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.util.Base64;
+import java.util.UUID;
+
 public class ProxyApp {
+
+    private static final int PORT = 1080;
+    private static final String BASE_URL = "https://zvgi0d7fm8.execute-api.us-east-2.amazonaws.com/prod";
+
+    private static Channel serverChannel;
+    private static EventLoopGroup bossGroup;
+    private static EventLoopGroup workerGroup;
+
+    private static String sessionId;
+    private static String token;
+
     public static void main(String[] args) throws Exception {
-        int port = 1080;
+        System.out.println("[ProxyApp] Type 'open' to start session, 'close' to stop, 'exit' to quit");
 
-        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        ProxyRelayClient relayClient = new ProxyRelayClient(BASE_URL);
 
-        try {
-            ServerBootstrap bootstrap = new ServerBootstrap();
-            bootstrap.group(bossGroup, workerGroup)
-                    .channel(NioServerSocketChannel.class)
-                    .childHandler(new ChannelInitializer<Channel>() {
-                        @Override
-                        protected void initChannel(Channel ch) {
-                            ch.pipeline().addLast(new Socks5HandlerTest());
-                        }
-                    });
+        while (true) {
+            System.out.print("> ");
+            String line = reader.readLine();
+            if (line == null) break;
 
-            ChannelFuture future = bootstrap.bind(port).sync();
-            System.out.println("[SOCKS5] Test proxy started on port " + port);
-            future.channel().closeFuture().sync();
+            switch (line.trim().toLowerCase()) {
+                case "open":
+                    if (serverChannel != null) {
+                        System.out.println("[ProxyApp] Session already open");
+                        break;
+                    }
+                    sessionId = UUID.randomUUID().toString();
+                    token = Base64.getEncoder().encodeToString((sessionId + ":secret").getBytes());
+                    relayClient.openSession(sessionId, token);
+                    startSocksServer(relayClient, sessionId);
+                    System.out.println("[ProxyApp] Session started:");
+                    System.out.println("Session ID: " + sessionId);
+                    System.out.println("Token: " + token);
+                    break;
 
-        } finally {
-            bossGroup.shutdownGracefully();
-            workerGroup.shutdownGracefully();
+                case "close":
+                    if (serverChannel == null) {
+                        System.out.println("[ProxyApp] No active session");
+                        break;
+                    }
+                    relayClient.deleteSession(sessionId);
+                    stopSocksServer();
+                    System.out.println("[ProxyApp] Session closed");
+                    break;
+
+                case "exit":
+                    if (serverChannel != null) {
+                        relayClient.deleteSession(sessionId);
+                        stopSocksServer();
+                    }
+                    System.out.println("[ProxyApp] Bye!");
+                    return;
+
+                default:
+                    System.out.println("[ProxyApp] Unknown command");
+            }
         }
+    }
+
+    private static void startSocksServer(ProxyRelayClient relayClient, String sessionId) throws InterruptedException {
+        bossGroup = new NioEventLoopGroup(1);
+        workerGroup = new NioEventLoopGroup();
+
+        ServerBootstrap bootstrap = new ServerBootstrap();
+        bootstrap.group(bossGroup, workerGroup)
+                .channel(NioServerSocketChannel.class)
+                .childHandler(new ChannelInitializer<Channel>() {
+                    @Override
+                    protected void initChannel(Channel ch) {
+                        ch.pipeline().addLast(new Socks5Handler(relayClient, sessionId));
+                    }
+                });
+
+        ChannelFuture future = bootstrap.bind(PORT).sync();
+        serverChannel = future.channel();
+        System.out.println("[ProxyApp] SOCKS5 proxy started on port " + PORT);
+    }
+
+    private static void stopSocksServer() throws InterruptedException {
+        if (serverChannel != null) {
+            serverChannel.close().sync();
+            serverChannel = null;
+        }
+        if (bossGroup != null) bossGroup.shutdownGracefully();
+        if (workerGroup != null) workerGroup.shutdownGracefully();
     }
 }

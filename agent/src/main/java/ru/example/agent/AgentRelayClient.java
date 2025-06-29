@@ -1,6 +1,10 @@
 package ru.example.agent;
 
-import okhttp3.*;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 import java.io.IOException;
 
@@ -12,14 +16,17 @@ public class AgentRelayClient {
         this.baseUrl = baseUrl;
     }
 
-    public void pollTask(String sessionId) throws IOException {
+    public String pollTask(String sessionId) throws IOException {
         Request request = new Request.Builder()
                 .url(baseUrl + "/session/task/poll?sessionId=" + sessionId)
                 .get()
                 .build();
         try (Response response = client.newCall(request).execute()) {
-            System.out.println("[pollTask] Response: " + response.code() + " " + response.body().string());
+            if (response.code() == 200 && response.body() != null) {
+                return response.body().string();
+            }
         }
+        return null;
     }
 
     public void submitResult(String sessionId, String payload) throws IOException {

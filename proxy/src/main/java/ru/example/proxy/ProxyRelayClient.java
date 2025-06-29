@@ -37,26 +37,34 @@ public class ProxyRelayClient {
     }
 
     public void enqueueTask(String sessionId, String payload) throws IOException {
+        String escapedPayload = payload.replace("\"", "\\\"");
+        String bodyJson = String.format("{\"sessionId\": \"%s\", \"payload\": \"%s\"}", sessionId, escapedPayload);
+
         RequestBody body = RequestBody.create(
                 MediaType.get("application/json"),
-                String.format("{\"sessionId\": \"%s\", \"payload\": \"%s\"}", sessionId, payload)
+                bodyJson
         );
+
         Request request = new Request.Builder()
                 .url(baseUrl + "/session/task/enqueue")
                 .post(body)
                 .build();
+
         try (Response response = client.newCall(request).execute()) {
             System.out.println("[enqueueTask] Response: " + response.code() + " " + response.body().string());
         }
     }
 
-    public void fetchResult(String sessionId) throws IOException {
+    public String fetchResult(String sessionId) throws IOException {
         Request request = new Request.Builder()
                 .url(baseUrl + "/session/result/fetch?sessionId=" + sessionId)
                 .get()
                 .build();
         try (Response response = client.newCall(request).execute()) {
-            System.out.println("[fetchResult] Response: " + response.code() + " " + response.body().string());
+            if (response.code() == 200 && response.body() != null) {
+                return response.body().string();
+            }
         }
+        return null;
     }
 }
