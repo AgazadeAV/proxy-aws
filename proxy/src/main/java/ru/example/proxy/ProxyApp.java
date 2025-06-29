@@ -23,52 +23,68 @@ public class ProxyApp {
     private static String token;
 
     public static void main(String[] args) throws Exception {
-        System.out.println("[ProxyApp] Type 'open' to start session, 'close' to stop, 'exit' to quit");
+        System.out.println("[ProxyApp] Starting SOCKS5 proxy on port " + PORT);
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         ProxyRelayClient relayClient = new ProxyRelayClient(BASE_URL);
 
-        while (true) {
-            System.out.print("> ");
-            String line = reader.readLine();
-            if (line == null) break;
+        // CLI thread
+        Thread cliThread = new Thread(() -> handleCommands(relayClient));
+        cliThread.setDaemon(true);
+        cliThread.start();
 
-            switch (line.trim().toLowerCase()) {
-                case "open":
-                    if (serverChannel != null) {
-                        System.out.println("[ProxyApp] Session already open");
+        // Wait forever while CLI handles lifecycle
+        synchronized (ProxyApp.class) {
+            ProxyApp.class.wait();
+        }
+    }
+
+    private static void handleCommands(ProxyRelayClient relayClient) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+            while (true) {
+                System.out.print("> ");
+                String line = reader.readLine();
+                if (line == null) break;
+
+                switch (line.trim().toLowerCase()) {
+                    case "open":
+                        if (serverChannel != null) {
+                            System.out.println("[ProxyApp] Session already open");
+                            break;
+                        }
+                        sessionId = UUID.randomUUID().toString();
+                        token = Base64.getEncoder().encodeToString(sessionId.getBytes());
+                        relayClient.openSession(sessionId, token);
+                        startSocksServer(relayClient, sessionId);
+                        System.out.println("[ProxyApp] Session started:");
+                        System.out.println("Session ID: " + sessionId);
+                        System.out.println("Token: " + token);
                         break;
-                    }
-                    sessionId = UUID.randomUUID().toString();
-                    token = Base64.getEncoder().encodeToString((sessionId).getBytes());
-                    relayClient.openSession(sessionId, token);
-                    startSocksServer(relayClient, sessionId);
-                    System.out.println("[ProxyApp] Session started:");
-                    System.out.println("Session ID: " + sessionId);
-                    System.out.println("Token: " + token);
-                    break;
 
-                case "close":
-                    if (serverChannel == null) {
-                        System.out.println("[ProxyApp] No active session");
-                        break;
-                    }
-                    relayClient.deleteSession(sessionId);
-                    stopSocksServer();
-                    System.out.println("[ProxyApp] Session closed");
-                    break;
-
-                case "exit":
-                    if (serverChannel != null) {
+                    case "close":
+                        if (serverChannel == null) {
+                            System.out.println("[ProxyApp] No active session");
+                            break;
+                        }
                         relayClient.deleteSession(sessionId);
                         stopSocksServer();
-                    }
-                    System.out.println("[ProxyApp] Bye!");
-                    return;
+                        System.out.println("[ProxyApp] Session closed");
+                        break;
 
-                default:
-                    System.out.println("[ProxyApp] Unknown command");
+                    case "exit":
+                        if (serverChannel != null) {
+                            relayClient.deleteSession(sessionId);
+                            stopSocksServer();
+                        }
+                        System.out.println("[ProxyApp] Bye!");
+                        System.exit(0);
+                        break;
+
+                    default:
+                        System.out.println("[ProxyApp] Unknown command");
+                }
             }
+        } catch (Exception e) {
+            System.err.println("[ProxyApp] CLI error: " + e.getMessage());
         }
     }
 
@@ -79,7 +95,7 @@ public class ProxyApp {
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel.class)
-                .childHandler(new ChannelInitializer<Channel>() {
+                .childHandler(new ChannelInitializer<>() {
                     @Override
                     protected void initChannel(Channel ch) {
                         ch.pipeline().addLast(new Socks5Handler(relayClient, sessionId));
