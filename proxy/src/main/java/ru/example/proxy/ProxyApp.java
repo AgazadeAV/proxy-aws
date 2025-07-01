@@ -13,7 +13,6 @@ import java.util.UUID;
 public class ProxyApp {
 
     private static final int PORT = 1080;
-    private static final String BASE_URL = "https://zvgi0d7fm8.execute-api.us-east-2.amazonaws.com/prod";
 
     private static Channel serverChannel;
     private static EventLoopGroup bossGroup;
@@ -24,7 +23,10 @@ public class ProxyApp {
     public static void main(String[] args) throws Exception {
         System.out.println("[ProxyApp] Starting SOCKS5 proxy on port " + PORT);
 
-        ProxyRelayClient relayClient = new ProxyRelayClient(BASE_URL);
+        ProxyRelayClient relayClient = new ProxyRelayClient(
+                "https://sqs.us-east-2.amazonaws.com/302010997651/proxy-to-agent.fifo",
+                "https://sqs.us-east-2.amazonaws.com/302010997651/agent-to-proxy.fifo"
+        );
 
         // CLI thread
         Thread cliThread = new Thread(() -> handleCommands(relayClient));

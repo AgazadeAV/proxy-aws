@@ -17,9 +17,10 @@ public class AgentApp {
             return;
         }
 
-        String baseUrl = "https://zvgi0d7fm8.execute-api.us-east-2.amazonaws.com/prod";
-
-        AgentRelayClient relayClient = new AgentRelayClient(baseUrl);
+        AgentRelayClient relayClient = new AgentRelayClient(
+                "https://sqs.us-east-2.amazonaws.com/302010997651/proxy-to-agent.fifo",
+                "https://sqs.us-east-2.amazonaws.com/302010997651/agent-to-proxy.fifo"
+        );
         AgentSessionManager sessionManager = new AgentSessionManager();
         AgentCommandProcessor commandProcessor = new AgentCommandProcessor(sessionManager, relayClient);
         AgentTaskPoller poller = new AgentTaskPoller(sessionId, relayClient, commandProcessor);
