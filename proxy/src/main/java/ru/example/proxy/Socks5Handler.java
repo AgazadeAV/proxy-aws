@@ -4,13 +4,16 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import lombok.RequiredArgsConstructor;
 
 import java.nio.charset.StandardCharsets;
 
+@RequiredArgsConstructor
 public class Socks5Handler extends ChannelInboundHandlerAdapter {
 
     private final ProxyRelayClient relayClient;
     private final String sessionId;
+
     private ResultReader reader;
 
     private enum State {
@@ -18,11 +21,6 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
     }
 
     private State state = State.HANDSHAKE;
-
-    public Socks5Handler(ProxyRelayClient relayClient, String sessionId) {
-        this.relayClient = relayClient;
-        this.sessionId = sessionId;
-    }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -42,7 +40,7 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
                 buf.readByte(); // RSV
                 int atyp = buf.readByte(); // ATYP
 
-                String host = null;
+                String host;
                 if (atyp == 0x01) {
                     host = (buf.readByte() & 0xFF) + "." + (buf.readByte() & 0xFF) + "." +
                             (buf.readByte() & 0xFF) + "." + (buf.readByte() & 0xFF);
@@ -89,6 +87,7 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
+    @SuppressWarnings("CallToPrintStackTrace")
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (reader != null) {
             reader.stop();

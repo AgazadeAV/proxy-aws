@@ -1,5 +1,6 @@
 package ru.example.agent;
 
+import lombok.RequiredArgsConstructor;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -8,13 +9,10 @@ import okhttp3.Response;
 
 import java.io.IOException;
 
+@RequiredArgsConstructor
 public class AgentRelayClient {
     private final OkHttpClient client = new OkHttpClient();
     private final String baseUrl;
-
-    public AgentRelayClient(String baseUrl) {
-        this.baseUrl = baseUrl;
-    }
 
     public String pollTask(String sessionId) throws IOException {
         Request request = new Request.Builder()
@@ -30,15 +28,15 @@ public class AgentRelayClient {
     }
 
     public void submitResult(String sessionId, String payload) throws IOException {
-        RequestBody body = RequestBody.create(
-                MediaType.get("application/json"),
-                String.format("{\"sessionId\": \"%s\", \"payload\": \"%s\"}", sessionId, payload)
-        );
+        String bodyJson = String.format("{\"sessionId\": \"%s\", \"payload\": \"%s\"}", sessionId, payload);
+        RequestBody body = RequestBody.Companion.create(bodyJson, MediaType.get("application/json"));
+
         Request request = new Request.Builder()
                 .url(baseUrl + "/session/result/submit")
                 .post(body)
                 .build();
         try (Response response = client.newCall(request).execute()) {
+            assert response.body() != null;
             System.out.println("[submitResult] Response: " + response.code() + " " + response.body().string());
         }
     }

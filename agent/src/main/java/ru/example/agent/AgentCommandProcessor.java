@@ -1,18 +1,16 @@
 package ru.example.agent;
 
+import lombok.RequiredArgsConstructor;
+
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 
+@RequiredArgsConstructor
 public class AgentCommandProcessor {
 
     private final AgentSessionManager sessionManager;
     private final AgentRelayClient relayClient;
-
-    public AgentCommandProcessor(AgentSessionManager sessionManager, AgentRelayClient relayClient) {
-        this.sessionManager = sessionManager;
-        this.relayClient = relayClient;
-    }
 
     public void process(AgentTaskPoller.Task task, String sessionId) {
         try {

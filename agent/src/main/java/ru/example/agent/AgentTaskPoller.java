@@ -2,27 +2,25 @@ package ru.example.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 
 import java.util.Base64;
 
+@RequiredArgsConstructor
 public class AgentTaskPoller implements Runnable {
 
     private final String sessionId;
     private final AgentRelayClient client;
     private final AgentCommandProcessor processor;
-    private volatile boolean running = true;
 
-    public AgentTaskPoller(String sessionId, AgentRelayClient client, AgentCommandProcessor processor) {
-        this.sessionId = sessionId;
-        this.client = client;
-        this.processor = processor;
-    }
+    private volatile boolean running = true;
 
     public void stop() {
         running = false;
     }
 
     @Override
+    @SuppressWarnings("BusyWait")
     public void run() {
         System.out.println("[AgentTaskPoller] Started polling for session: " + sessionId);
         while (running) {

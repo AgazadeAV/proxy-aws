@@ -20,7 +20,6 @@ public class ProxyApp {
     private static EventLoopGroup workerGroup;
 
     private static String sessionId;
-    private static String token;
 
     public static void main(String[] args) throws Exception {
         System.out.println("[ProxyApp] Starting SOCKS5 proxy on port " + PORT);
@@ -52,7 +51,7 @@ public class ProxyApp {
                             break;
                         }
                         sessionId = UUID.randomUUID().toString();
-                        token = Base64.getEncoder().encodeToString(sessionId.getBytes());
+                        String token = Base64.getEncoder().encodeToString(sessionId.getBytes());
                         relayClient.openSession(sessionId, token);
                         startSocksServer(relayClient, sessionId);
                         System.out.println("[ProxyApp] Session started:");

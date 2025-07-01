@@ -2,27 +2,25 @@ package ru.example.proxy;
 
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.RequiredArgsConstructor;
 
 import java.util.Base64;
 
+@RequiredArgsConstructor
 public class ResultReader implements Runnable {
 
     private final ProxyRelayClient relayClient;
     private final String sessionId;
     private final ChannelHandlerContext ctx;
-    private volatile boolean running = true;
 
-    public ResultReader(ProxyRelayClient relayClient, String sessionId, ChannelHandlerContext ctx) {
-        this.relayClient = relayClient;
-        this.sessionId = sessionId;
-        this.ctx = ctx;
-    }
+    private volatile boolean running = true;
 
     public void stop() {
         running = false;
     }
 
     @Override
+    @SuppressWarnings("BusyWait")
     public void run() {
         System.out.println("[ResultReader] Started for session: " + sessionId);
         while (running && ctx.channel().isActive()) {
@@ -51,7 +49,7 @@ public class ResultReader implements Runnable {
             int keyIndex = json.indexOf("\"payload\":");
             if (keyIndex == -1) return null;
 
-            int start = json.indexOf("\"", keyIndex + 9); // первая кавычка после :
+            int start = json.indexOf("\"", keyIndex + 9); // первая кавычка после ":"
             int end = json.indexOf("\"", start + 1);      // вторая кавычка
 
             if (start == -1 || end == -1) return null;
