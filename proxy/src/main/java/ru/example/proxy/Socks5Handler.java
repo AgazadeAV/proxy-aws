@@ -62,8 +62,8 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
 
                 int port = buf.readUnsignedShort();
 
-                String json = mapper.writeValueAsString(new ConnectCommand(host, port));
-                relayClient.enqueueTask(sessionId, json);
+                String connectJson = mapper.writeValueAsString(new ConnectCommand(host, port));
+                relayClient.enqueueTask(sessionId, connectJson);
 
                 byte[] resp = {
                         0x05, 0x00, 0x00, 0x01,
@@ -82,8 +82,9 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
                 byte[] bytes = new byte[buf.readableBytes()];
                 buf.readBytes(bytes);
                 String payload = Base64.getEncoder().encodeToString(bytes);
-                String json = mapper.writeValueAsString(new SendCommand(payload));
-                relayClient.enqueueTask(sessionId, json);
+                String sendJson = mapper.writeValueAsString(new SendCommand(payload));
+                relayClient.enqueueTask(sessionId, sendJson);
+                Thread.sleep(50);
                 String receiveJson = mapper.writeValueAsString(new ReceiveCommand());
                 relayClient.enqueueTask(sessionId, receiveJson);
             }

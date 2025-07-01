@@ -9,6 +9,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
@@ -42,6 +43,8 @@ public class AgentRelayClient {
             .build();
 
     public String pollTask(String sessionId) {
+        ObjectMapper mapper = new ObjectMapper();
+
         try {
             ReceiveMessageRequest request = ReceiveMessageRequest.builder()
                     .queueUrl(taskQueueUrl)
@@ -55,14 +58,25 @@ public class AgentRelayClient {
             Message message = response.messages().get(0);
             String body = message.body();
 
-            // Delete message from queue
+            // Парсим сообщение из очереди (s3Key, sessionId и т.д.)
+            SqsMessageDto dto = mapper.readValue(body, SqsMessageDto.class);
+
+            // Скачиваем JSON команды из S3 по ключу
+            GetObjectRequest getRequest = GetObjectRequest.builder()
+                            .bucket(BUCKET)
+                            .key(dto.getS3Key())
+                            .build();
+            String json = s3.getObjectAsBytes(getRequest).asUtf8String();
+
+            // Удаляем сообщение из очереди
             sqs.deleteMessage(DeleteMessageRequest.builder()
                     .queueUrl(taskQueueUrl)
                     .receiptHandle(message.receiptHandle())
                     .build());
 
-            System.out.printf("[pollTask] Received task: %s%n", body);
-            return body;
+            System.out.printf("[pollTask] Received task: %s%n", dto.getS3Key());
+            return json;
+
         } catch (Exception e) {
             System.err.println("[pollTask] Error: " + e.getMessage());
             return null;
