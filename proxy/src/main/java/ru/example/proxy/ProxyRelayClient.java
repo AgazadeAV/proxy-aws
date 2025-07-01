@@ -1,6 +1,8 @@
 package ru.example.proxy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import ru.example.proxy.dto.SqsMessageDto;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -15,6 +17,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -47,7 +50,7 @@ public class ProxyRelayClient {
         System.out.printf("[deleteSession] Session deleted: %s%n", sessionId);
     }
 
-    public void enqueueTask(String sessionId, String commandJson) {
+    public void enqueueTask(String sessionId, String commandJson) throws Exception {
         String key = String.format("sessions/%s/task_%s.json", sessionId, UUID.randomUUID());
 
         // Upload to S3
@@ -59,7 +62,13 @@ public class ProxyRelayClient {
         );
 
         // Send message to SQS with S3 key
-        String body = String.format("{\"sessionId\": \"%s\", \"s3Key\": \"%s\"}", sessionId, key);
+        SqsMessageDto dto = SqsMessageDto.builder()
+                .sessionId(sessionId)
+                .s3Key(key)
+                .timestamp(Instant.now().toString())
+                .build();
+        ObjectMapper mapper = new ObjectMapper();
+        String body = mapper.writeValueAsString(dto);
 
         SendMessageRequest request = SendMessageRequest.builder()
                 .queueUrl(taskQueueUrl)
@@ -118,12 +127,11 @@ public class ProxyRelayClient {
 
     private String extractS3Key(String json) {
         try {
-            int index = json.indexOf("\"s3Key\":");
-            if (index == -1) return null;
-            int start = json.indexOf("\"", index + 8);
-            int end = json.indexOf("\"", start + 1);
-            return json.substring(start + 1, end);
+            ObjectMapper mapper = new ObjectMapper();
+            SqsMessageDto dto = mapper.readValue(json, SqsMessageDto.class);
+            return dto.getS3Key();
         } catch (Exception e) {
+            System.err.println("[extractS3Key] Error: " + e.getMessage());
             return null;
         }
     }

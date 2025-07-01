@@ -1,10 +1,8 @@
 package ru.example.agent;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-
-import java.util.Base64;
+import ru.example.agent.dto.CommandMessage;
 
 @RequiredArgsConstructor
 public class AgentTaskPoller implements Runnable {
@@ -23,54 +21,24 @@ public class AgentTaskPoller implements Runnable {
     @SuppressWarnings("BusyWait")
     public void run() {
         System.out.println("[AgentTaskPoller] Started polling for session: " + sessionId);
+        ObjectMapper mapper = new ObjectMapper();
+
         while (running) {
             try {
                 String json = client.pollTask(sessionId);
                 if (json != null && !json.isBlank()) {
-                    Task task = Task.fromJson(json);
-                    if (task != null) {
-                        processor.process(task, sessionId);
-                    }
+                    CommandMessage command = mapper.readValue(json, CommandMessage.class);
+                    processor.process(command, sessionId);
                 }
                 Thread.sleep(500);
             } catch (Exception e) {
                 System.err.println("[AgentTaskPoller] Error: " + e.getMessage());
-                try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException ignored) {
+                }
             }
         }
         System.out.println("[AgentTaskPoller] Stopped.");
-    }
-
-    public static class Task {
-        public String command;
-        public String address;
-        public int port;
-        public String payload;
-
-        public static Task fromJson(String json) {
-            try {
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode root = mapper.readTree(json); // Внешний JSON
-                String inner = root.get("payload").asText(); // Вложенный JSON как строка
-
-                JsonNode payloadNode = mapper.readTree(inner); // Вложенный JSON
-
-                Task task = new Task();
-                task.command = payloadNode.has("command") ? payloadNode.get("command").asText() : null;
-                task.address = payloadNode.has("address") ? payloadNode.get("address").asText() : null;
-                task.port = payloadNode.has("port") ? payloadNode.get("port").asInt() : 0;
-                task.payload = payloadNode.has("payload") ? payloadNode.get("payload").asText() : null;
-
-                return task;
-            } catch (Exception e) {
-                System.err.println("[Task] Failed to parse: " + e.getMessage());
-                return null;
-            }
-        }
-
-        public byte[] getPayloadBytes() {
-            if (payload == null || payload.isBlank()) return new byte[0];
-            return Base64.getDecoder().decode(payload);
-        }
     }
 }

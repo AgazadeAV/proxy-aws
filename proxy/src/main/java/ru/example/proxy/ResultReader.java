@@ -1,8 +1,10 @@
 package ru.example.proxy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.RequiredArgsConstructor;
+import ru.example.proxy.dto.EnvelopeDto;
 
 import java.util.Base64;
 
@@ -45,16 +47,10 @@ public class ResultReader implements Runnable {
 
     private String extractPayload(String json) {
         try {
-            // Пример: {"payload": "dGVzdC1yZXNwb25zZQ=="}
-            int keyIndex = json.indexOf("\"payload\":");
-            if (keyIndex == -1) return null;
+            ObjectMapper mapper = new ObjectMapper();
+            EnvelopeDto envelope = mapper.readValue(json, EnvelopeDto.class);
 
-            int start = json.indexOf("\"", keyIndex + 9); // первая кавычка после ":"
-            int end = json.indexOf("\"", start + 1);      // вторая кавычка
-
-            if (start == -1 || end == -1) return null;
-
-            return json.substring(start + 1, end);
+            return envelope.getPayload();
         } catch (Exception e) {
             System.err.println("[extractPayload] Error: " + e.getMessage());
             return null;

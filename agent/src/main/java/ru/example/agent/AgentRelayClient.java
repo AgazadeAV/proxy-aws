@@ -1,6 +1,9 @@
 package ru.example.agent;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import ru.example.agent.dto.EnvelopeDto;
+import ru.example.agent.dto.SqsMessageDto;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -15,7 +18,6 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 import java.time.Instant;
-import java.util.Base64;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -68,20 +70,26 @@ public class AgentRelayClient {
     }
 
     public void submitResult(String sessionId, String base64Payload) {
+        ObjectMapper mapper = new ObjectMapper();
         try {
-            String key = String.format("sessions/%s/result_%s.bin", sessionId, UUID.randomUUID());
-            byte[] data = Base64.getDecoder().decode(base64Payload);
+            String key = String.format("sessions/%s/result_%s.json", sessionId, UUID.randomUUID());
+            String json = mapper.writeValueAsString(new EnvelopeDto(base64Payload));
 
             // Upload to S3
             s3.putObject(PutObjectRequest.builder()
                             .bucket(BUCKET)
                             .key(key)
                             .build(),
-                    RequestBody.fromBytes(data));
+                    RequestBody.fromString(json));
 
             // Send message to SQS
-            String body = String.format("{\"sessionId\": \"%s\", \"s3Key\": \"%s\", \"timestamp\": \"%s\"}",
-                    sessionId, key, Instant.now());
+            SqsMessageDto dto = SqsMessageDto.builder()
+                    .sessionId(sessionId)
+                    .s3Key(key)
+                    .timestamp(Instant.now().toString())
+                    .build();
+
+            String body = mapper.writeValueAsString(dto);
 
             SendMessageRequest request = SendMessageRequest.builder()
                     .queueUrl(resultQueueUrl)

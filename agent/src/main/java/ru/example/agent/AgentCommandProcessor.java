@@ -1,10 +1,14 @@
 package ru.example.agent;
 
 import lombok.RequiredArgsConstructor;
+import ru.example.agent.dto.CommandMessage;
+import ru.example.agent.dto.ConnectCommand;
+import ru.example.agent.dto.SendCommand;
 
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.util.Base64;
 
 @RequiredArgsConstructor
 public class AgentCommandProcessor {
@@ -12,20 +16,19 @@ public class AgentCommandProcessor {
     private final AgentSessionManager sessionManager;
     private final AgentRelayClient relayClient;
 
-    public void process(AgentTaskPoller.Task task, String sessionId) {
+    public void process(CommandMessage task, String sessionId) {
         try {
             switch (task.command) {
-                case "CONNECT":
-                    handleConnect(sessionId, task.address, task.port);
-                    break;
-                case "SEND":
-                    handleSend(sessionId, task.getPayloadBytes());
-                    break;
-                case "RECEIVE":
-                    handleReceive(sessionId);
-                    break;
-                default:
-                    System.err.println("[Processor] Unknown command: " + task.command);
+                case "CONNECT" -> {
+                    ConnectCommand connect = (ConnectCommand) task;
+                    handleConnect(sessionId, connect.getAddress(), connect.getPort());
+                }
+                case "SEND" -> {
+                    SendCommand send = (SendCommand) task;
+                    handleSend(sessionId, getPayloadBytes(send.getPayload()));
+                }
+                case "RECEIVE" -> handleReceive(sessionId);
+                default -> System.err.println("[Processor] Unknown command: " + task.command);
             }
         } catch (Exception e) {
             System.err.println("[Processor] Error handling task: " + e.getMessage());
@@ -62,11 +65,16 @@ public class AgentCommandProcessor {
         if (read > 0) {
             byte[] result = new byte[read];
             System.arraycopy(buffer, 0, result, 0, read);
-            String payload = java.util.Base64.getEncoder().encodeToString(result);
+            String payload = Base64.getEncoder().encodeToString(result);
             relayClient.submitResult(sessionId, payload);
             System.out.println("[RECEIVE] Read and submitted " + read + " bytes");
         } else {
             System.out.println("[RECEIVE] No data available");
         }
+    }
+
+    public byte[] getPayloadBytes(String payload) {
+        if (payload == null || payload.isBlank()) return new byte[0];
+        return Base64.getDecoder().decode(payload);
     }
 }

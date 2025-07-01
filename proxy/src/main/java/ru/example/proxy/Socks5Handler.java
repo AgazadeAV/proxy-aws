@@ -1,12 +1,17 @@
 package ru.example.proxy;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import lombok.RequiredArgsConstructor;
+import ru.example.proxy.dto.ConnectCommand;
+import ru.example.proxy.dto.ReceiveCommand;
+import ru.example.proxy.dto.SendCommand;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 @RequiredArgsConstructor
 public class Socks5Handler extends ChannelInboundHandlerAdapter {
@@ -24,6 +29,7 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
         ByteBuf buf = (ByteBuf) msg;
 
         try {
@@ -56,7 +62,7 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
 
                 int port = buf.readUnsignedShort();
 
-                String json = CommandSerializer.toJsonConnect(host, port);
+                String json = mapper.writeValueAsString(new ConnectCommand(host, port));
                 relayClient.enqueueTask(sessionId, json);
 
                 byte[] resp = {
@@ -75,9 +81,10 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
             } else if (state == State.STREAM) {
                 byte[] bytes = new byte[buf.readableBytes()];
                 buf.readBytes(bytes);
-                String json = CommandSerializer.toJsonSend(bytes);
+                String payload = Base64.getEncoder().encodeToString(bytes);
+                String json = mapper.writeValueAsString(new SendCommand(payload));
                 relayClient.enqueueTask(sessionId, json);
-                String receiveJson = CommandSerializer.toJsonReceive();
+                String receiveJson = mapper.writeValueAsString(new ReceiveCommand());
                 relayClient.enqueueTask(sessionId, receiveJson);
             }
 
