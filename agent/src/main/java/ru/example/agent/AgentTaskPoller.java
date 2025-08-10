@@ -25,18 +25,22 @@ public class AgentTaskPoller implements Runnable {
 
         while (running) {
             try {
-                String json = client.pollTask(sessionId);
-                if (json != null && !json.isBlank()) {
-                    CommandMessage command = mapper.readValue(json, CommandMessage.class);
-                    processor.process(command, sessionId);
+                PendingTask pending = client.pollTask(sessionId);
+                if (pending != null && pending.getJson() != null && !pending.getJson().isBlank()) {
+                    try {
+                        CommandMessage command = mapper.readValue(pending.getJson(), CommandMessage.class);
+                        processor.process(command, sessionId);
+                        // Успех — подтверждаем удалением
+                        client.ackTask(sessionId, pending.getReceiptHandle());
+                    } catch (Exception ex) {
+                        // Не ack — задача вернётся после visibility timeout
+                        System.err.println("[AgentTaskPoller] Processing error: " + ex.getMessage());
+                    }
                 }
                 Thread.sleep(500);
             } catch (Exception e) {
                 System.err.println("[AgentTaskPoller] Error: " + e.getMessage());
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException ignored) {
-                }
+                try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
             }
         }
         System.out.println("[AgentTaskPoller] Stopped.");

@@ -12,11 +12,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
-import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
-import software.amazon.awssdk.services.sqs.model.Message;
-import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
-import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
-import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
+import software.amazon.awssdk.services.sqs.model.*;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -24,12 +20,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AgentRelayClient {
 
-    private final String taskQueueUrl;
-    private final String resultQueueUrl;
-
     private static final Region REGION = Region.US_EAST_2;
     private static final String BUCKET = "proxy-session-bucket";
-    private static final AwsBasicCredentials CREDS = AwsBasicCredentials.create("AKIAUMUKCDOJS7SHLF4H", "VGuzhS342yNoy9bdVwkCWMGlXS7KmQhs7Iv/D170");
+
+    // ⚠️ как у тебя было — хардкод ключей. В проде так делать нельзя, но оставляю по совместимости.
+    private static final AwsBasicCredentials CREDS = AwsBasicCredentials.create(
+            "AKIAUMUKCDOJS7SHLF4H",
+            "VGuzhS342yNoy9bdVwkCWMGlXS7KmQhs7Iv/D170"
+    );
     private static final StaticCredentialsProvider PROVIDER = StaticCredentialsProvider.create(CREDS);
 
     private final S3Client s3 = S3Client.builder()
@@ -42,40 +40,50 @@ public class AgentRelayClient {
             .credentialsProvider(PROVIDER)
             .build();
 
-    public String pollTask(String sessionId) {
-        ObjectMapper mapper = new ObjectMapper();
+    private String taskQueueName(String sessionId) { return "proxy-to-agent-" + sessionId + ".fifo"; }
+    private String resultQueueName(String sessionId) { return "agent-to-proxy-" + sessionId + ".fifo"; }
 
+    private String getQueueUrlByName(String queueName) {
         try {
-            ReceiveMessageRequest request = ReceiveMessageRequest.builder()
-                    .queueUrl(taskQueueUrl)
+            return sqs.getQueueUrl(GetQueueUrlRequest.builder().queueName(queueName).build()).queueUrl();
+        } catch (QueueDoesNotExistException e) {
+            // Очередь ещё не создана (сессия не открыта на прокси) — это ок.
+            return null;
+        }
+    }
+
+    /** Читаем задачу без удаления из SQS. Возвращаем JSON команды и receiptHandle. */
+    public PendingTask pollTask(String sessionId) {
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            String queueUrl = getQueueUrlByName(taskQueueName(sessionId));
+            if (queueUrl == null) return null;
+
+            ReceiveMessageResponse response = sqs.receiveMessage(ReceiveMessageRequest.builder()
+                    .queueUrl(queueUrl)
                     .waitTimeSeconds(10)
                     .maxNumberOfMessages(1)
-                    .build();
+                    .build());
 
-            ReceiveMessageResponse response = sqs.receiveMessage(request);
             if (response.messages().isEmpty()) return null;
 
             Message message = response.messages().get(0);
             String body = message.body();
 
-            // Парсим сообщение из очереди (s3Key, sessionId и т.д.)
             SqsMessageDto dto = mapper.readValue(body, SqsMessageDto.class);
+            // Перестраховка — проверим, что сообщение нашей сессии.
+            if (!sessionId.equals(dto.getSessionId())) {
+                return null; // не удаляем, пусть вернётся по visibility timeout
+            }
 
-            // Скачиваем JSON команды из S3 по ключу
-            GetObjectRequest getRequest = GetObjectRequest.builder()
+            String json = s3.getObjectAsBytes(GetObjectRequest.builder()
                             .bucket(BUCKET)
                             .key(dto.getS3Key())
-                            .build();
-            String json = s3.getObjectAsBytes(getRequest).asUtf8String();
-
-            // Удаляем сообщение из очереди
-            sqs.deleteMessage(DeleteMessageRequest.builder()
-                    .queueUrl(taskQueueUrl)
-                    .receiptHandle(message.receiptHandle())
-                    .build());
+                            .build())
+                    .asUtf8String();
 
             System.out.printf("[pollTask] Received task: %s%n", dto.getS3Key());
-            return json;
+            return new PendingTask(message.receiptHandle(), json);
 
         } catch (Exception e) {
             System.err.println("[pollTask] Error: " + e.getMessage());
@@ -83,20 +91,34 @@ public class AgentRelayClient {
         }
     }
 
+    /** Подтверждаем успешную обработку сообщения: удаляем из SQS. */
+    public void ackTask(String sessionId, String receiptHandle) {
+        try {
+            String queueUrl = getQueueUrlByName(taskQueueName(sessionId));
+            if (queueUrl == null) return;
+
+            sqs.deleteMessage(DeleteMessageRequest.builder()
+                    .queueUrl(queueUrl)
+                    .receiptHandle(receiptHandle)
+                    .build());
+        } catch (Exception e) {
+            System.err.println("[ackTask] Error: " + e.getMessage());
+        }
+    }
+
+    /** Публикуем результат в per-session очередь результатов. */
     public void submitResult(String sessionId, String base64Payload) {
         ObjectMapper mapper = new ObjectMapper();
         try {
             String key = String.format("sessions/%s/result_%s.json", sessionId, UUID.randomUUID());
             String json = mapper.writeValueAsString(new EnvelopeDto(base64Payload));
 
-            // Upload to S3
             s3.putObject(PutObjectRequest.builder()
                             .bucket(BUCKET)
                             .key(key)
                             .build(),
                     RequestBody.fromString(json));
 
-            // Send message to SQS
             SqsMessageDto dto = SqsMessageDto.builder()
                     .sessionId(sessionId)
                     .s3Key(key)
@@ -105,14 +127,19 @@ public class AgentRelayClient {
 
             String body = mapper.writeValueAsString(dto);
 
-            SendMessageRequest request = SendMessageRequest.builder()
+            String resultQueueUrl = getQueueUrlByName(resultQueueName(sessionId));
+            if (resultQueueUrl == null) {
+                System.err.println("[submitResult] Result queue not found for session " + sessionId);
+                return;
+            }
+
+            sqs.sendMessage(SendMessageRequest.builder()
                     .queueUrl(resultQueueUrl)
                     .messageGroupId(sessionId)
                     .messageDeduplicationId(UUID.randomUUID().toString())
                     .messageBody(body)
-                    .build();
+                    .build());
 
-            sqs.sendMessage(request);
             System.out.printf("[submitResult] Sent result to SQS (%s)%n", key);
         } catch (Exception e) {
             System.err.println("[submitResult] Error: " + e.getMessage());

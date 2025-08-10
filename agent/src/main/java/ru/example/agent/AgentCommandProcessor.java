@@ -68,6 +68,9 @@ public class AgentCommandProcessor {
             String payload = Base64.getEncoder().encodeToString(result);
             relayClient.submitResult(sessionId, payload);
             System.out.println("[RECEIVE] Read and submitted " + read + " bytes");
+        } else if (read == -1) {
+            System.out.println("[RECEIVE] Peer closed, closing session socket");
+            sessionManager.close(sessionId);
         } else {
             System.out.println("[RECEIVE] No data available");
         }

@@ -17,15 +17,12 @@ public class AgentApp {
             return;
         }
 
-        AgentRelayClient relayClient = new AgentRelayClient(
-                "https://sqs.us-east-2.amazonaws.com/302010997651/proxy-to-agent.fifo",
-                "https://sqs.us-east-2.amazonaws.com/302010997651/agent-to-proxy.fifo"
-        );
+        AgentRelayClient relayClient = new AgentRelayClient(); // без URL-ов
         AgentSessionManager sessionManager = new AgentSessionManager();
         AgentCommandProcessor commandProcessor = new AgentCommandProcessor(sessionManager, relayClient);
         AgentTaskPoller poller = new AgentTaskPoller(sessionId, relayClient, commandProcessor);
 
-        Thread thread = new Thread(poller);
+        Thread thread = new Thread(poller, "agent-task-poller");
         thread.start();
 
         System.out.println("[AgentApp] Agent started for session: " + sessionId);
