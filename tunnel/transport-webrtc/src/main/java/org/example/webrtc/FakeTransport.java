@@ -36,6 +36,7 @@ public class FakeTransport implements Transport {
 
     @Override
     public void send(int streamId, byte[] data) {
+        if (listener != null && data != null && data.length > 0) listener.onData(streamId, data);
         log("[Fake] send streamId=" + streamId + " bytes=" + (data == null ? 0 : data.length));
     }
 
