@@ -23,10 +23,8 @@ public class ProxyApp {
     public static void main(String[] args) throws Exception {
         System.out.println("[ProxyApp] Starting SOCKS5 proxy on port " + PORT);
 
-        ProxyRelayClient relayClient = new ProxyRelayClient(
-                "https://sqs.us-east-2.amazonaws.com/302010997651/proxy-to-agent.fifo",
-                "https://sqs.us-east-2.amazonaws.com/302010997651/agent-to-proxy.fifo"
-        );
+        // ⬇️ без хардкода URL – клиент сам работает с per-session очередями
+        ProxyRelayClient relayClient = new ProxyRelayClient();
 
         // CLI thread
         Thread cliThread = new Thread(() -> handleCommands(relayClient));

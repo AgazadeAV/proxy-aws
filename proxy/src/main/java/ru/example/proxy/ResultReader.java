@@ -32,6 +32,7 @@ public class ResultReader implements Runnable {
                     String payload = extractPayload(json);
                     if (payload != null) {
                         byte[] bytes = Base64.getDecoder().decode(payload);
+                        // Лучше писать через eventLoop, но это правка следующего шага.
                         ctx.writeAndFlush(Unpooled.wrappedBuffer(bytes));
                         System.out.println("[ResultReader] Received " + bytes.length + " bytes from agent");
                     }
@@ -49,7 +50,6 @@ public class ResultReader implements Runnable {
         try {
             ObjectMapper mapper = new ObjectMapper();
             EnvelopeDto envelope = mapper.readValue(json, EnvelopeDto.class);
-
             return envelope.getPayload();
         } catch (Exception e) {
             System.err.println("[extractPayload] Error: " + e.getMessage());

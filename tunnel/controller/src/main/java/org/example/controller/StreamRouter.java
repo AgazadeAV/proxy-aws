@@ -1,0 +1,85 @@
+package org.example.controller;
+
+import io.netty.channel.Channel;
+import org.example.webrtc.Transport;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Соединяет SOCKS5 <-> Transport.
+ * Держит соответствие streamId -> Channel, и пробрасывает события.
+ */
+public class StreamRouter implements Transport.Listener {
+
+    private final String sessionId;
+    private final Transport transport;
+
+    private final Map<Integer, Socks5Server.Socks5Handler> handlers = new ConcurrentHashMap<>();
+    private final Map<Integer, Channel> channels = new ConcurrentHashMap<>();
+
+    public StreamRouter(String sessionId, Transport transport) {
+        this.sessionId = sessionId;
+        this.transport = transport;
+        this.transport.setListener(this);
+    }
+
+    /** Вызывается из Socks5Server при новом CONNECT. */
+    public void open(int streamId, String host, int port, Channel clientChannel) {
+        Socks5Server.Socks5Handler handler = clientChannel.pipeline().get(Socks5Server.Socks5Handler.class);
+        handlers.put(streamId, handler);
+        channels.put(streamId, clientChannel);
+
+        transport.open(streamId, host, port);
+    }
+
+    /** Клиент прислал данные → вверх по транспорту */
+    public void send(int streamId, byte[] data) {
+        transport.send(streamId, data);
+    }
+
+    /** Клиент закрыл канал/ошибка → вверх по транспорту */
+    public void close(int streamId, String reason) {
+        transport.close(streamId, reason);
+        Channel ch = channels.remove(streamId);
+        handlers.remove(streamId);
+        if (ch != null && ch.isActive()) ch.close();
+    }
+
+    /* ===== Transport.Listener callbacks ===== */
+
+    @Override
+    public void onConnectAck(int streamId, boolean ok, String message) {
+        Socks5Server.Socks5Handler h = handlers.get(streamId);
+        if (h == null) return;
+
+        if (ok) {
+            h.sendSuccess();
+        } else {
+            Channel ch = channels.remove(streamId);
+            handlers.remove(streamId);
+            if (ch != null && ch.isActive()) ch.close();
+        }
+    }
+
+    @Override
+    public void onData(int streamId, byte[] data) {
+        Channel ch = channels.get(streamId);
+        if (ch != null && ch.isActive()) {
+            Socks5Server.Socks5Handler h = ch.pipeline().get(Socks5Server.Socks5Handler.class);
+            if (h != null) h.sendData(data);
+        }
+    }
+
+    @Override
+    public void onClose(int streamId, String reason) {
+        Channel ch = channels.remove(streamId);
+        handlers.remove(streamId);
+        if (ch != null && ch.isActive()) ch.close();
+    }
+
+    @Override
+    public void onLog(String msg) {
+        System.out.println("[Controller] " + msg);
+    }
+}

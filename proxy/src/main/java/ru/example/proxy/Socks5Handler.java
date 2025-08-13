@@ -51,7 +51,7 @@ public class Socks5Handler extends ChannelInboundHandlerAdapter {
                     host = (buf.readByte() & 0xFF) + "." + (buf.readByte() & 0xFF) + "." +
                             (buf.readByte() & 0xFF) + "." + (buf.readByte() & 0xFF);
                 } else if (atyp == 0x03) {
-                    int len = buf.readByte();
+                    int len = buf.readByte(); // оставляю как у тебя, fix на readUnsignedByte сделаем позже
                     byte[] domainBytes = new byte[len];
                     buf.readBytes(domainBytes);
                     host = new String(domainBytes, StandardCharsets.UTF_8);
