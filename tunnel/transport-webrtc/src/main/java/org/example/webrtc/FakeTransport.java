@@ -31,7 +31,7 @@ public class FakeTransport implements Transport {
     @Override
     public void open(int streamId, String host, int port) {
         log("[Fake] open streamId=" + streamId + " " + host + ":" + port);
-        if (listener != null) listener.onConnectAck(streamId, false, "FakeTransport");
+        if (listener != null) listener.onConnectAck(streamId, true, "OK");
     }
 
     @Override
