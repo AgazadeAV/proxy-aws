@@ -54,8 +54,12 @@ public final class PeerConnectionManager {
         return new PeerConnectionObserver() {
             @Override
             public void onIceCandidate(RTCIceCandidate c) {
-                logger.accept("ICE candidate mid=" + c.sdpMid + " mline=" + c.sdpMLineIndex);
-                upstream.onIceCandidate(c);
+                if (c != null) {
+                    logger.accept("ICE candidate mid=" + c.sdpMid + " mline=" + c.sdpMLineIndex);
+                    upstream.onIceCandidate(c);
+                } else {
+                    logger.accept("ICE candidate: end-of-candidates");
+                }
             }
 
             @Override

@@ -38,12 +38,17 @@ public final class DataChannelIo {
             @Override
             public void onMessage(RTCDataChannelBuffer buffer) {
                 try {
+                    ByteBuffer data = buffer.data;
                     byte[] bytes;
-                    if (buffer.data.hasArray()) {
-                        bytes = buffer.data.array();
+                    if (data.hasArray()) {
+                        int pos = data.position();
+                        int lim = data.limit();
+                        int off = data.arrayOffset();
+                        bytes = java.util.Arrays.copyOfRange(data.array(), off + pos, off + lim);
                     } else {
-                        bytes = new byte[buffer.data.remaining()];
-                        buffer.data.get(bytes);
+                        ByteBuffer dup = data.slice();
+                        bytes = new byte[dup.remaining()];
+                        dup.get(bytes);
                     }
                     Frame f = JsonCodec.decodeBytes(bytes);
                     if (f != null) frameListener.onFrame(f);

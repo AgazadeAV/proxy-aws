@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.onvoid.webrtc.CreateSessionDescriptionObserver;
 import dev.onvoid.webrtc.RTCAnswerOptions;
 import dev.onvoid.webrtc.RTCIceCandidate;
+import dev.onvoid.webrtc.RTCIceGatheringState;
 import dev.onvoid.webrtc.RTCOfferOptions;
 import dev.onvoid.webrtc.RTCPeerConnection;
 import dev.onvoid.webrtc.RTCSdpType;
@@ -35,7 +36,8 @@ public final class SignalingService {
         ), "createOffer");
 
         join(run(cb -> pc.setLocalDescription(offer, cb)), "setLocal(offer)");
-        return offer.sdp;
+        awaitIceGatheringComplete();
+        return pc.getLocalDescription().sdp; // SDP уже с ICE-кандидатами
     }
 
     String createAnswer() {
@@ -44,7 +46,22 @@ public final class SignalingService {
         ), "createAnswer");
 
         join(run(cb -> pc.setLocalDescription(ans, cb)), "setLocal(answer)");
-        return ans.sdp;
+        awaitIceGatheringComplete();
+        return pc.getLocalDescription().sdp; // SDP уже с ICE-кандидатами
+    }
+
+    private void awaitIceGatheringComplete() {
+        long deadline = System.currentTimeMillis() + (long) 15000;
+        while (System.currentTimeMillis() < deadline) {
+            if (pc.getIceGatheringState() == RTCIceGatheringState.COMPLETE) return;
+            try {
+                Thread.sleep(25);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        throw new RuntimeException("ICE gathering timeout");
     }
 
     void setRemoteAnswer(String sdp) {

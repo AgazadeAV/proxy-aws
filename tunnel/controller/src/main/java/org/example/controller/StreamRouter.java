@@ -62,6 +62,8 @@ public class StreamRouter implements Transport.Listener {
         if (ok) {
             h.sendSuccess();
         } else {
+            // 0x05 = Connection refused (разумный дефолт)
+            h.sendFailure(0x05);
             Channel ch = channels.remove(streamId);
             handlers.remove(streamId);
             if (ch != null && ch.isActive()) ch.close();

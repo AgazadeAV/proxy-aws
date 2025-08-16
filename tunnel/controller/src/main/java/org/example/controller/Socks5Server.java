@@ -93,7 +93,7 @@ class Socks5Server {
                     int atyp = buf.readByte() & 0xFF;
 
                     if (cmd != 0x01) {
-                        sendFailure(ctx, 0x07); // cmd not supported
+                        sendFailure(0x07); // cmd not supported
                         return;
                     }
 
@@ -110,7 +110,7 @@ class Socks5Server {
                         buf.readBytes(dom);
                         host = new String(dom, StandardCharsets.UTF_8);
                     } else {
-                        sendFailure(ctx, 0x08); // address type not supported
+                        sendFailure(0x08); // address type not supported
                         return;
                     }
 
@@ -143,7 +143,7 @@ class Socks5Server {
             ctx.close();
         }
 
-        private void sendFailure(ChannelHandlerContext ctx, int rep) {
+        void sendFailure(int rep) {
             byte[] resp = new byte[]{0x05, (byte) rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0};
             ctx.writeAndFlush(Unpooled.wrappedBuffer(resp)).addListener(ChannelFutureListener.CLOSE);
         }
