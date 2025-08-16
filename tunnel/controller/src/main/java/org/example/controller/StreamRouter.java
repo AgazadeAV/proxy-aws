@@ -24,7 +24,9 @@ public class StreamRouter implements Transport.Listener {
         this.transport.setListener(this);
     }
 
-    /** Вызывается из Socks5Server при новом CONNECT. */
+    /**
+     * Вызывается из Socks5Server при новом CONNECT.
+     */
     public void open(int streamId, String host, int port, Channel clientChannel) {
         Socks5Server.Socks5Handler handler = clientChannel.pipeline().get(Socks5Server.Socks5Handler.class);
         handlers.put(streamId, handler);
@@ -33,12 +35,16 @@ public class StreamRouter implements Transport.Listener {
         transport.open(streamId, host, port);
     }
 
-    /** Клиент прислал данные → вверх по транспорту */
+    /**
+     * Клиент прислал данные → вверх по транспорту
+     */
     public void send(int streamId, byte[] data) {
         transport.send(streamId, data);
     }
 
-    /** Клиент закрыл канал/ошибка → вверх по транспорту */
+    /**
+     * Клиент закрыл канал/ошибка → вверх по транспорту
+     */
     public void close(int streamId, String reason) {
         transport.close(streamId, reason);
         Channel ch = channels.remove(streamId);

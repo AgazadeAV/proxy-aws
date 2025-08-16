@@ -3,8 +3,7 @@ package org.example.agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.common.SignalingFiles;
 import org.example.webrtc.CredsProvider;
-import org.example.webrtc.FakeTransport;
-import org.example.webrtc.Transport;
+import org.example.webrtc.WebRtcTransport;
 
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -16,9 +15,9 @@ public class AgentApp {
         ObjectMapper om = new ObjectMapper();
         AgentConfig cfg = om.readValue(cfgDir.resolve("app.agent.json").toFile(), AgentConfig.class);
 
+        // --- WebRTC transport ---
         CredsProvider creds = CredsProvider.fromDir(cfgDir);
-        Transport transport = new FakeTransport();
-        // Transport transport = new WebRtcTransport(creds);
+        WebRtcTransport transport = new WebRtcTransport(creds);
 
         StreamRouter router = new StreamRouter(cfg.getSessionId(), transport, new TcpDialer(cfg.getConnectTimeoutMs()));
         transport.setListener(router);
@@ -31,18 +30,16 @@ public class AgentApp {
         boolean didSignalAction = false;
         String offerIn = argValue(args, "--sig-offer-in");
         String answerOut = argValue(args, "--sig-answer-out");
-        boolean trickle = false;
+        boolean trickle = false; // можно потом включить
 
         if (offerIn != null) {
             String sdpOffer = SignalingFiles.readText(Path.of(offerIn));
-            // ((WebRtcTransport) transport).setRemoteOffer(sdpOffer);
+            transport.setRemoteOffer(sdpOffer);
             didSignalAction = true;
         }
 
         if (answerOut != null) {
-            // var wrt = (WebRtcTransport) transport;
-            // String sdpAnswer = wrt.createAnswer(trickle);
-            String sdpAnswer = "ANSWER_PLACEHOLDER"; // удалить после JNI
+            String sdpAnswer = transport.createAnswer(trickle);
             SignalingFiles.writeText(Path.of(answerOut), sdpAnswer);
             didSignalAction = true;
         }

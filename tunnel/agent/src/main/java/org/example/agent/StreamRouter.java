@@ -6,7 +6,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class StreamRouter implements Transport.Listener {
 
@@ -25,7 +27,12 @@ public class StreamRouter implements Transport.Listener {
 
     public void shutdown() {
         readers.shutdownNow();
-        sockets.values().forEach(s -> { try { s.close(); } catch (Exception ignored) {} });
+        sockets.values().forEach(s -> {
+            try {
+                s.close();
+            } catch (Exception ignored) {
+            }
+        });
         sockets.clear();
     }
 
@@ -33,7 +40,7 @@ public class StreamRouter implements Transport.Listener {
 
     @Override
     public void onConnectAck(int streamId, boolean ok, String message) {
-        // На агенте ack обычному клиенту не нужен — это обратный канал к controller.
+        // На агенте ACK вверх по SOCKS не нужен — это обратный канал к controller.
         // Ничего не делаем.
     }
 
@@ -60,20 +67,16 @@ public class StreamRouter implements Transport.Listener {
         System.out.println("[Agent] " + msg);
     }
 
-    /* ===== Вспомогательные вызовы сверху (после WebRTC) =====
-       Когда внедрим реальный транспорт, сюда будет прилетать CONNECT.
-       В нашем API транспорта CONNECT инициирует controller через transport.open().
-       На агенте это проявится как входящее сообщение (внутри WebRTC-реализации),
-       и мы должны будем открыть сокет. Для MVP с FakeTransport CONNECT не прилетает.
+    /**
+     * Пришёл CONNECT с контроллера — открыть локальный TCP и ответить ACK
      */
-
-    /** Открыть локальный TCP и стартовать reader-loop (агентская сторона). */
+    @Override
     public void onIncomingConnect(int streamId, String host, int port) {
         try {
             Socket s = dialer.connect(host, port);
             sockets.put(streamId, s);
 
-            // reader-loop: из TCP -> transport.DATA
+            // reader-loop: TCP -> transport.DATA
             readers.submit(() -> {
                 try (Socket sock = s; InputStream in = sock.getInputStream()) {
                     byte[] buf = new byte[16 * 1024];
@@ -83,27 +86,32 @@ public class StreamRouter implements Transport.Listener {
                         System.arraycopy(buf, 0, chunk, 0, r);
                         transport.send(streamId, chunk);
                     }
-                } catch (Exception e) {
-                    // TCP закрылся → уведомим контроллер
+                } catch (Exception ignored) {
+                    // сокет закрылся/ошибка чтения
                 } finally {
                     transport.close(streamId, "tcp-closed");
                     sockets.remove(streamId);
                 }
             });
 
-            // отправить ACK контроллеру
-            transport.send(streamId, new byte[0]); // Заглушка; в реальном WebRTC отправим CONNECT_ACK ok=true
-
+            // успешный ACK контроллеру
+            transport.ack(streamId, true, "OK");
         } catch (Exception e) {
-            // ACK fail
-            transport.close(streamId, "connect-failed: " + e.getMessage());
+            // не удалось подключиться — шлём отрицательный ACK и закрываем поток
+            transport.ack(streamId, false, "connect-failed: " + e.getMessage());
+            transport.close(streamId, "connect-failed");
         }
     }
+
+    /* ===== helpers ===== */
 
     private void closeStream(int streamId, String why) {
         Socket s = sockets.remove(streamId);
         if (s != null) {
-            try { s.close(); } catch (Exception ignored) {}
+            try {
+                s.close();
+            } catch (Exception ignored) {
+            }
         }
     }
 }

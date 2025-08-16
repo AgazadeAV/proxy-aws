@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "urls": [
+      "turn:world.relay.skype.com:3478?transport=udp",
+      "turn:world.relay.skype.com:443?transport=tcp",
+      "turns:world.relay.skype.com:443"
+    ],
+    "credential": "3MJqOWIuRbLy9mRCUMOwOBYrK2A=",
+    "username": "AgAAJLd/qwAB3BQNoCAZ/l7Vm+6ma3KJSGpyh/eE+J4AAAAAsnQ6swzTcc8SwrDOz/IVf2epzKA="
+  }
+]

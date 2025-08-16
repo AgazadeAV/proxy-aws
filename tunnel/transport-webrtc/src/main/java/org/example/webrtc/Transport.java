@@ -7,37 +7,65 @@ package org.example.webrtc;
 public interface Transport {
 
     interface Listener {
-        /** Результат CONNECT с удалённой стороны (ACK). */
+        /**
+         * Результат CONNECT с удалённой стороны (ACK).
+         */
         void onConnectAck(int streamId, boolean ok, String message);
 
-        /** Входящие данные по открытому потоку. */
+        /**
+         * Входящие данные по открытому потоку.
+         */
         void onData(int streamId, byte[] data);
 
-        /** Закрытие потока с причиной (может быть null). */
+        /**
+         * Закрытие потока с причиной (может быть null).
+         */
         void onClose(int streamId, String reason);
 
-        /** Необязательный лог/диагностика. */
-        default void onLog(String msg) {}
+        /**
+         * Необязательный лог/диагностика.
+         */
+        default void onLog(String msg) {
+        }
+
+        default void onIncomingConnect(int streamId, String host, int port) {
+        }
     }
 
-    /** Назначить listener (до start()). */
+    /**
+     * Назначить listener (до start()).
+     */
     void setListener(Listener listener);
 
-    /** Установить логический идентификатор сессии (для логов, тегов). */
+    /**
+     * Установить логический идентификатор сессии (для логов, тегов).
+     */
     void setSessionId(String sessionId);
 
-    /** Запуск транспорта (установить канал). */
+    /**
+     * Запуск транспорта (установить канал).
+     */
     void start();
 
-    /** Остановка транспорта (закрыть канал и ресурсы). */
+    /**
+     * Остановка транспорта (закрыть канал и ресурсы).
+     */
     void stop();
 
-    /** Открыть новый логический поток к host:port (со стороны controller). */
+    /**
+     * Открыть новый логический поток к host:port (со стороны controller).
+     */
     void open(int streamId, String host, int port);
 
-    /** Отправить данные по потоку. */
+    /**
+     * Отправить данные по потоку.
+     */
     void send(int streamId, byte[] data);
 
-    /** Закрыть поток. */
+    /**
+     * Закрыть поток.
+     */
     void close(int streamId, String reason);
+
+    void ack(int streamId, boolean ok, String reason);
 }

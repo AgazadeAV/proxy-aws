@@ -6,7 +6,9 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 public final class SignalingFiles {
-    private SignalingFiles() {}
+
+    private SignalingFiles() {
+    }
 
     public static void writeText(Path file, String text) {
         try {
