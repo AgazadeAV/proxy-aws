@@ -10,7 +10,7 @@ import java.time.Duration;
 public class S3SignalingProvider implements SignalingProvider {
     private final S3Client s3;
     private final String bucket;
-    private final String prefix; // можно "" или "some/subdir/"
+    private final String prefix; // "" или "some/subdir/"
 
     public S3SignalingProvider(S3Client s3, String bucket, String prefix) {
         this.s3 = s3;
@@ -51,8 +51,6 @@ public class S3SignalingProvider implements SignalingProvider {
                     .key(key(key))
                     .build());
             return true;
-        } catch (NoSuchKeyException e) {
-            return false;
         } catch (S3Exception e) {
             if (e.statusCode() == 404) return false;
             throw e;
@@ -68,16 +66,14 @@ public class S3SignalingProvider implements SignalingProvider {
     }
 
     /**
-     * Удобный поллер: ждём появления ключа с таймаутом
+     * Поллер: ждём появления ключа с таймаутом
      */
     public String waitAndGet(String key, Duration timeout, Duration interval) throws Exception {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         while (System.currentTimeMillis() < deadline) {
-            if (exists(key)) {
-                return getText(key);
-            }
+            if (exists(key)) return getText(key);
             Thread.sleep(interval.toMillis());
         }
-        throw new RuntimeException("Timeout waiting for " + key(key));
+        throw new RuntimeException("Timeout waiting for s3://" + bucket + "/" + key(key));
     }
 }

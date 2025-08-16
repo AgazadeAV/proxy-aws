@@ -1,5 +1,0 @@
-{
-  "iceTransportPolicy": "relay",
-  "preferTcp443": true,
-  "chunkSize": 16384
-}

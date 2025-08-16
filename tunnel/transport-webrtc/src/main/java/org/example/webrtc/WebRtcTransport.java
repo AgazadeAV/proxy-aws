@@ -1,65 +1,45 @@
 package org.example.webrtc;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.onvoid.webrtc.CreateSessionDescriptionObserver;
-import dev.onvoid.webrtc.PeerConnectionFactory;
 import dev.onvoid.webrtc.PeerConnectionObserver;
-import dev.onvoid.webrtc.RTCAnswerOptions;
-import dev.onvoid.webrtc.RTCConfiguration;
 import dev.onvoid.webrtc.RTCDataChannel;
-import dev.onvoid.webrtc.RTCDataChannelBuffer;
-import dev.onvoid.webrtc.RTCDataChannelInit;
-import dev.onvoid.webrtc.RTCDataChannelObserver;
 import dev.onvoid.webrtc.RTCIceCandidate;
 import dev.onvoid.webrtc.RTCIceConnectionState;
-import dev.onvoid.webrtc.RTCIceServer;
 import dev.onvoid.webrtc.RTCIceTransportPolicy;
-import dev.onvoid.webrtc.RTCOfferOptions;
-import dev.onvoid.webrtc.RTCPeerConnection;
-import dev.onvoid.webrtc.RTCSdpType;
-import dev.onvoid.webrtc.RTCSessionDescription;
 import dev.onvoid.webrtc.RTCSignalingState;
-import dev.onvoid.webrtc.SetSessionDescriptionObserver;
 import org.example.common.Frame;
-import org.example.common.JsonCodec;
 
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
-/**
- * Реальная имплементация Transport на базе webrtc-java 0.13.0.
- * Один DataChannel ("tunnel") для обмена JSON-кадрами Frame.
- * <p>
- * Принципы:
- * - controller/agent оба используют этот класс.
- * - Для controller DataChannel создаётся лениво при первом open()/send().
- * - Для agent DataChannel чаще приходит через onDataChannel (удалённая сторона создала).
- * - Сигналинг файловый/HTTP снаружи через public-методы createOffer/setRemote*.
- */
 public class WebRtcTransport implements Transport {
 
-    private final CredsProvider credsProvider;
+    private final RtcConfigProvider configProvider;
     private Listener listener;
     private String sessionId = "unknown";
 
-    private volatile boolean started = false;
+    private PeerConnectionManager pcMgr;
+    private DataChannelIo dcIo;
+    private SignalingService signaling;
 
-    private PeerConnectionFactory factory;
-    private RTCPeerConnection pc;
-    private RTCDataChannel dc;
+    private final AtomicBoolean started = new AtomicBoolean(false);
 
-    private final ObjectMapper om = new ObjectMapper();
+    /* ===== конструктор по-умолчанию с теми же TURN, что были у тебя ===== */
+    public WebRtcTransport() {
+        this(new FixedRtcConfigProvider(
+                new String[]{
+                        "turn:world.relay.skype.com:3478?transport=udp",
+                        "turn:world.relay.skype.com:443?transport=tcp",
+                        "turns:world.relay.skype.com:443"
+                },
+                "AgAAJDRzSoAB3BQ3U6kdhwlBh6VsE1jvEQFhckUy+GEAAAAAvvbD4Ts/LyE+oGL/gbmxbejYx+Y=",
+                "FZGXuQd98vg1zbbZeJNIA6zKKg0=",
+                RTCIceTransportPolicy.RELAY
+        ));
+    }
 
-    // Накапливаем ICE-кандидаты удалённой стороны (если придут до pc готовности)
-    private final List<RTCIceCandidate> pendingRemoteCandidates = new ArrayList<>();
-
-    public WebRtcTransport(CredsProvider credsProvider) {
-        this.credsProvider = Objects.requireNonNull(credsProvider, "credsProvider");
+    public WebRtcTransport(RtcConfigProvider configProvider) {
+        this.configProvider = Objects.requireNonNull(configProvider);
     }
 
     @Override
@@ -75,391 +55,128 @@ public class WebRtcTransport implements Transport {
     @Override
     public synchronized void start() {
         ensureNotStarted();
-        // Фабрика и PC
-        factory = new PeerConnectionFactory();
+        Consumer<String> log = this::log;
 
-        RTCConfiguration cfg = buildRtcConfig();
-        pc = factory.createPeerConnection(cfg, new PeerConnectionObserver() {
+        pcMgr = new PeerConnectionManager(configProvider, s -> log.accept(s));
+        dcIo = new DataChannelIo(log, this::handleIncomingFrame);
+
+        pcMgr.start(new PeerConnectionObserver() {
             @Override
-            public void onIceCandidate(RTCIceCandidate candidate) {
-                log("ICE candidate: sdpMid=" + candidate.sdpMid +
-                        ", mLine=" + candidate.sdpMLineIndex +
-                        ", sdp=" + candidate.sdp);
-                // Если у вас будет trickle=true, экспортируйте candidate наружу (не реализовано здесь)
-            }
+            public void onIceCandidate(RTCIceCandidate c) { /* no-trickle, только лог */ }
 
             @Override
-            public void onIceConnectionChange(RTCIceConnectionState newState) {
-                log("ICE " + newState);
-            }
+            public void onIceConnectionChange(RTCIceConnectionState s) { /* уже логируется */ }
 
             @Override
-            public void onSignalingChange(RTCSignalingState newState) {
-                log("Signaling " + newState);
-            }
+            public void onSignalingChange(RTCSignalingState s) { /* уже логируется */ }
 
             @Override
-            public void onDataChannel(RTCDataChannel channel) {
-                log("onDataChannel: " + channel.getLabel());
-                attachDataChannel(channel);
+            public void onDataChannel(RTCDataChannel ch) {
+                dcIo.attach(ch);
             }
         });
 
-        started = true;
+        // создаём канал заранее, чтобы попал в SDP
+        RTCDataChannel ch = pcMgr.createDataChannel("tunnel");
+        dcIo.attach(ch);
+
+        signaling = new SignalingService(pcMgr.pc(), log);
+        started.set(true);
         log("started");
     }
 
     @Override
     public synchronized void stop() {
-        if (!started) return;
+        if (!started.get()) return;
         try {
-            if (dc != null) {
-                dc.unregisterObserver();
-                dc.close();
-                dc.dispose();
-            }
+            // Отцеплять observer у канала не обязательно: закрытие PC закрывает DC
         } catch (Throwable ignored) {
         }
-        try {
-            if (pc != null) pc.close();
-        } catch (Throwable ignored) {
-        }
-        try {
-            // factory в этой версии без явного dispose; оставим так
-        } catch (Throwable ignored) {
-        }
-        dc = null;
-        pc = null;
-        factory = null;
-        started = false;
+        pcMgr.stop();
+        pcMgr = null;
+        dcIo = null;
+        signaling = null;
+        started.set(false);
         log("stopped");
     }
 
     @Override
     public void open(int streamId, String host, int port) {
         ensureStarted();
-        ensureDataChannel();
-
-        // controller -> agent: запрос CONNECT
-        Frame f = Frame.connect(sessionId, streamId, host, port);
-        sendFrame(f);
+        dcIo.ensureAttached();
+        dcIo.sendFrame(Frame.connect(sessionId, streamId, host, port));
     }
 
     @Override
     public void send(int streamId, byte[] data) {
         ensureStarted();
-        ensureDataChannel();
-
-        Frame f = Frame.data(sessionId, streamId, data);
-        sendFrame(f);
+        dcIo.ensureAttached();
+        dcIo.sendFrame(Frame.data(sessionId, streamId, data));
     }
 
     @Override
     public void close(int streamId, String reason) {
         ensureStarted();
-        ensureDataChannel();
-
-        Frame f = Frame.close(sessionId, streamId, reason);
-        sendFrame(f);
+        dcIo.ensureAttached();
+        dcIo.sendFrame(Frame.close(sessionId, streamId, reason));
     }
 
     @Override
     public void ack(int streamId, boolean ok, String reason) {
         ensureStarted();
-        ensureDataChannel();
-        Frame f = Frame.connectAck(sessionId, streamId, ok, reason);
-        sendFrame(f);
+        dcIo.ensureAttached();
+        dcIo.sendFrame(Frame.connectAck(sessionId, streamId, ok, reason));
     }
 
-    /**
-     * Создать SDP offer (trickle=false — будем полагаться на ICE в SDP по умолчанию).
-     */
-// WebRtcTransport.java
+    /* ====== signaling API (как и было у тебя) ====== */
+
     public String createOffer(boolean trickle) {
         ensureStarted();
-        // ВАЖНО: создать канал до offer, чтобы он попал в SDP
-        ensureDataChannel();
-
-        CompletableFuture<RTCSessionDescription> fut = new CompletableFuture<>();
-        pc.createOffer(new RTCOfferOptions(), new CreateSessionDescriptionObserver() {
-            @Override
-            public void onSuccess(RTCSessionDescription desc) {
-                fut.complete(desc);
-            }
-
-            @Override
-            public void onFailure(String error) {
-                fut.completeExceptionally(new RuntimeException(error));
-            }
-        });
-        RTCSessionDescription offer = join(fut, "createOffer");
-
-        CompletableFuture<Void> setFut = new CompletableFuture<>();
-        pc.setLocalDescription(offer, new SetSessionDescriptionObserver() {
-            @Override
-            public void onSuccess() {
-                setFut.complete(null);
-            }
-
-            @Override
-            public void onFailure(String error) {
-                setFut.completeExceptionally(new RuntimeException(error));
-            }
-        });
-        join(setFut, "setLocalDescription(offer)");
-
-        return offer.sdp;
+        return signaling.createOffer();
     }
 
-    /**
-     * Применить удалённый answer (для controller).
-     */
     public void setRemoteAnswer(String sdp) {
         ensureStarted();
-        RTCSessionDescription ans = new RTCSessionDescription(RTCSdpType.ANSWER, sdp);
-        CompletableFuture<Void> fut = new CompletableFuture<>();
-        pc.setRemoteDescription(ans, new SetSessionDescriptionObserver() {
-            @Override
-            public void onSuccess() {
-                fut.complete(null);
-            }
-
-            @Override
-            public void onFailure(String error) {
-                fut.completeExceptionally(new RuntimeException(error));
-            }
-        });
-        join(fut, "setRemoteAnswer");
-        // Применим отложенные ICE-кандидаты, если были
-        flushPendingCandidates();
+        signaling.setRemoteAnswer(sdp);
     }
 
-    /**
-     * Применить удалённый offer (для agent).
-     */
     public void setRemoteOffer(String sdp) {
         ensureStarted();
-        RTCSessionDescription off = new RTCSessionDescription(RTCSdpType.OFFER, sdp);
-        CompletableFuture<Void> fut = new CompletableFuture<>();
-        pc.setRemoteDescription(off, new SetSessionDescriptionObserver() {
-            @Override
-            public void onSuccess() {
-                fut.complete(null);
-            }
-
-            @Override
-            public void onFailure(String error) {
-                fut.completeExceptionally(new RuntimeException(error));
-            }
-        });
-        join(fut, "setRemoteOffer");
-        // Применим отложенные ICE-кандидаты, если были
-        flushPendingCandidates();
+        signaling.setRemoteOffer(sdp);
     }
 
-    /**
-     * Создать SDP answer (для agent).
-     */
     public String createAnswer(boolean trickle) {
         ensureStarted();
-        CompletableFuture<RTCSessionDescription> fut = new CompletableFuture<>();
-        pc.createAnswer(new RTCAnswerOptions(), new CreateSessionDescriptionObserver() {
-            @Override
-            public void onSuccess(RTCSessionDescription desc) {
-                fut.complete(desc);
-            }
-
-            @Override
-            public void onFailure(String error) {
-                fut.completeExceptionally(new RuntimeException(error));
-            }
-        });
-
-        RTCSessionDescription ans = join(fut, "createAnswer");
-
-        CompletableFuture<Void> setFut = new CompletableFuture<>();
-        pc.setLocalDescription(ans, new SetSessionDescriptionObserver() {
-            @Override
-            public void onSuccess() {
-                setFut.complete(null);
-            }
-
-            @Override
-            public void onFailure(String error) {
-                setFut.completeExceptionally(new RuntimeException(error));
-            }
-        });
-        join(setFut, "setLocalDescription(answer)");
-
-        return ans.sdp;
+        return signaling.createAnswer();
     }
 
-    /**
-     * (опционально) принять ICE-кандидат; candidateJson поддерживает {"candidate","sdpMid","sdpMLineIndex"} либо сырой candidate-стринг.
-     */
     public void addRemoteIceCandidate(String candidateJson) {
         ensureStarted();
-        try {
-            RTCIceCandidate cand;
-            if (candidateJson.trim().startsWith("{")) {
-                JsonNode n = om.readTree(candidateJson);
-                String candidate = n.path("candidate").asText(null);
-                String sdpMid = n.hasNonNull("sdpMid") ? n.get("sdpMid").asText() : null;
-                int sdpMLineIndex = n.hasNonNull("sdpMLineIndex") ? n.get("sdpMLineIndex").asInt() : 0;
-                cand = new RTCIceCandidate(sdpMid, sdpMLineIndex, candidate);
-            } else {
-                // только строка candidate — sdpMid и mLineIndex возьмём по умолчанию
-                cand = new RTCIceCandidate("data", 0, candidateJson);
-            }
-
-            if (pc == null) {
-                synchronized (pendingRemoteCandidates) {
-                    pendingRemoteCandidates.add(cand);
-                }
-                return;
-            }
-            pc.addIceCandidate(cand);
-        } catch (Exception e) {
-            log("addRemoteIceCandidate error: " + e.getMessage());
-        }
+        signaling.addRemoteIceCandidate(candidateJson);
     }
 
-    /* ====================== Внутренние ====================== */
+    /* ====== внутренняя маршрутизация входящих кадров ====== */
 
-    private RTCConfiguration buildRtcConfig() {
-        RTCConfiguration cfg = new RTCConfiguration();
-        IceConfig ic = credsProvider.current();
-
-        // policy
-        try {
-            // relay | all
-            String pol = ic.getOptions().getIceTransportPolicy();
-            if ("relay".equalsIgnoreCase(pol)) {
-                cfg.iceTransportPolicy = RTCIceTransportPolicy.RELAY;
-            } else {
-                cfg.iceTransportPolicy = RTCIceTransportPolicy.ALL;
-            }
-        } catch (Exception ignored) {
-        }
-
-        // servers
-        if (ic.getIceServers() != null) {
-            for (IceConfig.IceServer s : ic.getIceServers()) {
-                RTCIceServer srv = new RTCIceServer();
-                if (s.getUrls() != null) srv.urls.addAll(s.getUrls());
-                if (s.getUsername() != null) srv.username = s.getUsername();
-                if (s.getCredential() != null) srv.password = s.getCredential();
-                cfg.iceServers.add(srv);
-            }
-        }
-        return cfg;
-    }
-
-    private void ensureNotStarted() {
-        if (started) throw new IllegalStateException("Transport already started");
-    }
-
-    private void ensureStarted() {
-        if (!started) throw new IllegalStateException("Transport is not started");
-    }
-
-    private synchronized void ensureDataChannel() {
-        if (dc != null) return;
-        if (pc == null) throw new IllegalStateException("PeerConnection is null");
-
-        // создаём один канал с фиксированным label
-        RTCDataChannelInit init = new RTCDataChannelInit();
-        dc = pc.createDataChannel("tunnel", init);
-        attachDataChannel(dc);
-    }
-
-    private void attachDataChannel(RTCDataChannel chan) {
-        this.dc = chan;
-        chan.registerObserver(new RTCDataChannelObserver() {
-            @Override
-            public void onMessage(RTCDataChannelBuffer buffer) {
-                try {
-                    // Мы шлём JSON-кадры Frame. Если пришёл бинарь — попробуем как UTF-8, иначе игнор.
-                    byte[] bytes;
-                    if (buffer.data.hasArray()) {
-                        bytes = buffer.data.array();
-                    } else {
-                        bytes = new byte[buffer.data.remaining()];
-                        buffer.data.get(bytes);
-                    }
-
-                    Frame f = JsonCodec.decodeBytes(bytes);
-                    handleIncomingFrame(f);
-                } catch (Exception e) {
-                    log("onMessage parse error: " + e.getMessage());
-                }
-            }
-
-            @Override
-            public void onBufferedAmountChange(long previousAmount) { /* no-op */ }
-
-            @Override
-            public void onStateChange() {
-                log("DataChannel state=" + chan.getState());
-            }
-        });
-    }
-
-    private void handleIncomingFrame(Frame f) {
+    private void handleIncomingFrame(org.example.common.Frame f) {
         if (f == null || listener == null) return;
-
         switch (f.cmd) {
             case CONNECT_ACK -> listener.onConnectAck(f.streamId, f.ok, f.reason);
             case DATA -> listener.onData(f.streamId, f.payload != null ? f.payload : new byte[0]);
             case CLOSE -> listener.onClose(f.streamId, f.reason);
             case CONNECT -> {
-                // Это пришло на агент — открыть локальный TCP и ответить ACK через onConnectAck
-                // В вашей архитектуре это делает Agent.StreamRouter.onIncomingConnect(...)
-                // Здесь просто пробрасываем событие вверх как лог, а ACK/данные вернутся обычным путём:
-                if (listener != null) {
-                    listener.onLog(sessionId + " :: CONNECT " + f.host + ":" + f.port + " streamId=" + f.streamId);
-                    listener.onIncomingConnect(f.streamId, f.host, f.port); // ← вот это главное
-                }
-                // Агент должен где-то вызвать onIncomingConnect(...) и после успешного dial отправить CONNECT_ACK:
-                // мы можем отправлять ACK прямо отсюда, если у вас будет обратный вызов.
-                // Оставляем как есть: бизнес-логика на агенте сама откроет TCP и начнёт слать DATA/ACK через sendFrame().
+                listener.onLog(sessionId + " :: CONNECT " + f.host + ":" + f.port + " streamId=" + f.streamId);
+                listener.onIncomingConnect(f.streamId, f.host, f.port);
             }
-            default -> {
-                // PING/PONG и прочее — опционально
-            }
+            default -> { /* PING/PONG и т.п. по желанию */ }
         }
     }
 
-    private void sendFrame(Frame f) {
-        try {
-            byte[] json = JsonCodec.encodeBytes(f);
-            ByteBuffer payload = ByteBuffer.wrap(json);
-            RTCDataChannelBuffer buf = new RTCDataChannelBuffer(payload, /*binary=*/true);
-            dc.send(buf);
-        } catch (Exception e) {
-            log("sendFrame error: " + e.getMessage());
-        }
+    private void ensureNotStarted() {
+        if (started.get()) throw new IllegalStateException("Transport already started");
     }
 
-    private void flushPendingCandidates() {
-        if (pendingRemoteCandidates.isEmpty() || pc == null) return;
-        synchronized (pendingRemoteCandidates) {
-            for (RTCIceCandidate c : pendingRemoteCandidates) {
-                try {
-                    pc.addIceCandidate(c);
-                } catch (Exception ignored) {
-                }
-            }
-            pendingRemoteCandidates.clear();
-        }
-    }
-
-    private <T> T join(CompletableFuture<T> fut, String where) {
-        try {
-            return fut.get(30, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new RuntimeException(where + " failed: " + e.getMessage(), e);
-        }
+    private void ensureStarted() {
+        if (!started.get()) throw new IllegalStateException("Transport is not started");
     }
 
     private void log(String s) {
