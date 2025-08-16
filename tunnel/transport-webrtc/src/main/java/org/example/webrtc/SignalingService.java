@@ -36,8 +36,8 @@ public final class SignalingService {
         ), "createOffer");
 
         join(run(cb -> pc.setLocalDescription(offer, cb)), "setLocal(offer)");
-        awaitIceGatheringComplete();
-        return pc.getLocalDescription().sdp; // SDP уже с ICE-кандидатами
+        awaitGatherOrCandidate();
+        return pc.getLocalDescription().sdp; // SDP уже с кандидатами (если были)
     }
 
     String createAnswer() {
@@ -46,23 +46,24 @@ public final class SignalingService {
         ), "createAnswer");
 
         join(run(cb -> pc.setLocalDescription(ans, cb)), "setLocal(answer)");
-        awaitIceGatheringComplete();
-        return pc.getLocalDescription().sdp; // SDP уже с ICE-кандидатами
+        awaitGatherOrCandidate();
+        return pc.getLocalDescription().sdp;
     }
 
-    private void awaitIceGatheringComplete() {
-        long deadline = System.currentTimeMillis() + (long) 15000;
+    /** Ждём COMPLETE ИЛИ появления первой строки a=candidate: в localDescription */
+    private void awaitGatherOrCandidate() {
+        long deadline = System.currentTimeMillis() + (long) 60000;
         while (System.currentTimeMillis() < deadline) {
-            if (pc.getIceGatheringState() == RTCIceGatheringState.COMPLETE) return;
-            try {
-                Thread.sleep(25);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                break;
+            try { Thread.sleep(25); } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt(); break;
             }
+            var ld = pc.getLocalDescription();
+            boolean hasCandidate = ld != null && ld.sdp != null && ld.sdp.contains("\na=candidate:");
+            if (hasCandidate || pc.getIceGatheringState() == RTCIceGatheringState.COMPLETE) return;
         }
-        throw new RuntimeException("ICE gathering timeout");
+        throw new RuntimeException("ICE gathering timeout (no candidates)");
     }
+
 
     void setRemoteAnswer(String sdp) {
         RTCSessionDescription ans = new RTCSessionDescription(RTCSdpType.ANSWER, sdp);

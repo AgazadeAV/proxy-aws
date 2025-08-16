@@ -79,6 +79,12 @@ public final class PeerConnectionManager {
                 logger.accept("onDataChannel: " + ch.getLabel());
                 upstream.onDataChannel(ch);
             }
+
+            @Override
+            public void onIceGatheringChange(dev.onvoid.webrtc.RTCIceGatheringState s) {
+                logger.accept("ICE-GATHER " + s);
+                upstream.onIceGatheringChange(s);
+            }
         };
     }
 }

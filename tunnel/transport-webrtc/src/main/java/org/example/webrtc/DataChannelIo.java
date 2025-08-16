@@ -41,9 +41,7 @@ public final class DataChannelIo {
                     ByteBuffer data = buffer.data;
                     byte[] bytes;
                     if (data.hasArray()) {
-                        int pos = data.position();
-                        int lim = data.limit();
-                        int off = data.arrayOffset();
+                        int off = data.arrayOffset(), pos = data.position(), lim = data.limit();
                         bytes = java.util.Arrays.copyOfRange(data.array(), off + pos, off + lim);
                     } else {
                         ByteBuffer dup = data.slice();
