@@ -32,8 +32,8 @@ public class WebRtcTransport implements Transport {
                         "turn:world.relay.skype.com:443?transport=tcp",
                         "turns:world.relay.skype.com:443"
                 },
-                "AgAAJJS+uAAB3BRI4VI9Xhus2C6AwX+F1ZzW4Yflwl4AAAAAMn1HDRE2Dk0VIQ2RaWjNulamnq0=",
-                "4m/CVGkYjNXq80DSLJtGERQKQzQ=",
+                "AgAAJGp98gAB3BRquEh7AEEic3M/J3Dc2tpcR25vBakAAAAA8tkUI+2ewyYHND1iZTxqrHVBK8A=",
+                "aFUFWeNgRacmr688u1WEsJEQWNU=",
                 RTCIceTransportPolicy.RELAY
         ));
     }
