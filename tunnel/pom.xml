@@ -28,6 +28,15 @@
         <app.mainClass>org.example.Main</app.mainClass>
     </properties>
 
+    <dependencies>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.32.2</version>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
