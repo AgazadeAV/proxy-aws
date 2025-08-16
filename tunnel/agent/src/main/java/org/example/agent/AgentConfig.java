@@ -3,7 +3,7 @@ package org.example.agent;
 public class AgentConfig {
 
     public String getSessionId() {
-        return "corp-agent-01";
+        return "operator-01";
     }
 
     public int getConnectTimeoutMs() {
