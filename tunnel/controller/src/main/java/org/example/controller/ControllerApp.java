@@ -55,11 +55,20 @@ public class ControllerApp {
         System.out.println("[Controller] Press Ctrl+C to exit");
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try { socks.stop(); } catch (Exception ignored) {}
-            try { transport.stop(); } catch (Exception ignored) {}
+            try {
+                socks.stop();
+            } catch (Exception ignored) {
+            }
+            try {
+                transport.stop();
+            } catch (Exception ignored) {
+            }
         }));
 
-        try { Thread.currentThread().join(); } catch (InterruptedException ignored) {}
+        try {
+            Thread.currentThread().join();
+        } catch (InterruptedException ignored) {
+        }
     }
 
     // ===== helpers =====
@@ -73,6 +82,9 @@ public class ControllerApp {
     }
 
     private static void safeDelete(S3SignalingProvider sp, String key) {
-        try { sp.delete(key); } catch (Exception ignored) {}
+        try {
+            sp.delete(key);
+        } catch (Exception ignored) {
+        }
     }
 }

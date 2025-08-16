@@ -49,11 +49,17 @@ public class AgentApp {
 
         System.out.println("[Agent] started. Press Ctrl+C to exit");
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try { transport.stop(); } catch (Exception ignored) {}
+            try {
+                transport.stop();
+            } catch (Exception ignored) {
+            }
             router.shutdown();
         }));
 
-        try { Thread.currentThread().join(); } catch (InterruptedException ignored) {}
+        try {
+            Thread.currentThread().join();
+        } catch (InterruptedException ignored) {
+        }
     }
 
     // ===== helpers =====
@@ -67,6 +73,9 @@ public class AgentApp {
     }
 
     private static void safeDelete(S3SignalingProvider sp, String key) {
-        try { sp.delete(key); } catch (Exception ignored) {}
+        try {
+            sp.delete(key);
+        } catch (Exception ignored) {
+        }
     }
 }

@@ -2,7 +2,9 @@ package org.example.common.signaling;
 
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -24,7 +26,7 @@ public class S3SignalingProvider implements SignalingProvider {
     }
 
     @Override
-    public void putText(String key, String content) throws Exception {
+    public void putText(String key, String content) {
         s3.putObject(PutObjectRequest.builder()
                         .bucket(bucket)
                         .key(key(key))
@@ -35,30 +37,7 @@ public class S3SignalingProvider implements SignalingProvider {
     }
 
     @Override
-    public String getText(String key) throws Exception {
-        return s3.getObjectAsBytes(GetObjectRequest.builder()
-                        .bucket(bucket)
-                        .key(key(key))
-                        .build())
-                .asString(StandardCharsets.UTF_8);
-    }
-
-    @Override
-    public boolean exists(String key) throws Exception {
-        try {
-            s3.headObject(HeadObjectRequest.builder()
-                    .bucket(bucket)
-                    .key(key(key))
-                    .build());
-            return true;
-        } catch (S3Exception e) {
-            if (e.statusCode() == 404) return false;
-            throw e;
-        }
-    }
-
-    @Override
-    public void delete(String key) throws Exception {
+    public void delete(String key) {
         s3.deleteObject(DeleteObjectRequest.builder()
                 .bucket(bucket)
                 .key(key(key))
@@ -66,14 +45,22 @@ public class S3SignalingProvider implements SignalingProvider {
     }
 
     /**
-     * Поллер: ждём появления ключа с таймаутом
+     * Поллер: ждём появления ключа с таймаутом, без HEAD — только GetObject.
+     * На 404 ждём и пробуем снова.
      */
     public String waitAndGet(String key, Duration timeout, Duration interval) throws Exception {
+        String fullKey = key(key);
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         while (System.currentTimeMillis() < deadline) {
-            if (exists(key)) return getText(key);
-            Thread.sleep(interval.toMillis());
+            try {
+                return s3.getObjectAsBytes(b -> b.bucket(bucket).key(fullKey))
+                        .asString(StandardCharsets.UTF_8);
+            } catch (S3Exception e) {
+                // 404 -> файла ещё нет; 403/другое — пробрасываем
+                if (e.statusCode() != 404) throw e;
+                Thread.sleep(interval.toMillis());
+            }
         }
-        throw new RuntimeException("Timeout waiting for s3://" + bucket + "/" + key(key));
+        throw new RuntimeException("Timeout waiting for s3://" + bucket + "/" + fullKey);
     }
 }
